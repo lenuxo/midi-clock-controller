@@ -1,0 +1,22 @@
+.build/
+.swiftpm/
+dist/
+.DS_Store
+
+# Xcode local state
+DerivedData/
+xcuserdata/
+*.xcuserstate
+
+# Local credentials and signing assets
+.env
+.env.*
+!.env.example
+*.p12
+*.p8
+*.mobileprovision
+
+# Editor and temporary files
+*.swp
+*.swo
+*~

@@ -1,0 +1,124 @@
+{
+  "name": "MIDI Clock / Quiet Precision V3",
+  "status": "High-fidelity raster design proposal; not implemented UI or editable Figma source",
+  "generation": {
+    "tool": "built-in image_gen",
+    "reference": "Previously approved retro instrument concept",
+    "prompt_specifications": {
+      "visual": "Create one cohesive UI visual board with dark full, light full and compact dark macOS windows. Refined retro scientific instrument style: amber seven-segment 128.0 BPM, flat graphite panels, 1px rules, 4px corners, minimal texture/shadow. Master-first layout with two following devices at 128 BPM and one stopped independent sampler at 90 BPM. Preserve theme selection, global Stop, per-device modes and responsive layout. Clear Chinese labels, modern body typography and monospaced auxiliary labels.",
+      "components": "Create a matching six-section UI component board: paired light/dark semantic colors and typography; tempo display default/editing/focus/error; transport default/hover/pressed/disabled/focus; following/independent/offline device rows; status and reduced-motion beat indicators; theme/mode menus and responsive dimensions. Do not imply external clock confirmation.",
+      "tactile_v2": "Refine the two previous UI boards with moderate tactile depth on interactive controls only. Show dark, light, compact previews plus enlarged default/hover/pressed/disabled/focus specimens. Raised square keycaps with 1–2 pt elevation, subtle gradient, upper edge and tight contact shadow; pressed keys drop 1 pt and lose shadow. Numeric displays and inputs recessed with slight inner shadow. Menus slightly raised with short popup shadow. Keep ordinary rows flat, graphite/white themes, amber digits, Chinese controls and master-first architecture. No heavy bevels, texture, grunge or diffuse glow.",
+      "quiet_v3": "Refine V2 into near-flat modern software controls: remove heavy bevels, lower lips, keycap elevation, display pits, glow and textures. Retain subtle 1px edges, minimal tonal differentiation, compact rectangular transport controls, amber seven-segment typography and light/dark themes. Show default, hover, pressed, disabled and focus states. Flat information, subtle action affordances."
+    }
+  },
+  "colors": {
+    "dark": {
+      "background": "#111416",
+      "panel": "#1B2023",
+      "display": "#090C0D",
+      "rule": "#394247",
+      "text": "#EFF2ED",
+      "secondary": "#A8B2AC",
+      "accent": "#FFC15A",
+      "playing": "#82C995",
+      "error": "#E88270"
+    },
+    "light": {
+      "background": "#EEF1EF",
+      "panel": "#FFFFFF",
+      "display": "#090C0D",
+      "displayDigits": "#FFC15A",
+      "text": "#1B2520",
+      "secondary": "#58665E",
+      "rule": "#C9D1CC",
+      "accentText": "#8A4B00",
+      "playing": "#2E7D3F",
+      "error": "#C25747"
+    }
+  },
+  "dimensions": {
+    "units": "macOS logical points; px labels in concept board are illustrative",
+    "minimumContentWidth": 380,
+    "minimumContentHeight": 360,
+    "compactBelowWidth": 580,
+    "cornerRadius": 4,
+    "ruleWidth": 1,
+    "spacing": [
+      8,
+      12,
+      16,
+      24
+    ],
+    "standardControlHeight": 32,
+    "displayFontSize": [
+      48,
+      56
+    ],
+    "titleFontSize": 16,
+    "bodyFontSize": 13,
+    "labelFontSize": 11
+  },
+  "components": [
+    "TempoDisplay",
+    "TempoStepper",
+    "TransportButton",
+    "GlobalStopButton",
+    "DeviceRow",
+    "ControlModeMenu",
+    "AppearanceMenu",
+    "PlaybackStatus",
+    "BeatIndicator",
+    "InlineError"
+  ],
+  "interaction_rules": [
+    "Master affects followers only; independent devices retain separate tempo and transport.",
+    "Start is disabled for an already playing device or fully playing follower group. Stop is disabled when its target is stopped. Global Stop is disabled when nothing is playing.",
+    "Stopping means every visual beat segment is unlit; reduced motion uses a static indicator.",
+    "Beat indicator is a UI view of locally scheduled clock, not an external-device synchronization acknowledgement.",
+    "Tempo digits can use seven-segment rendering in display mode; editing must remain a real accessible text field with selection and caret.",
+    "The entire tempo field exposes a numeric BPM accessibility value; individual digital segments are hidden from accessibility.",
+    "Theme supports system, light and dark; mode supports follow master and independent.",
+    "Global stop and theme remain reachable in compact layout; remaining controls wrap and scroll, not scale down.",
+    "Light-theme amber is confined to the dark display; text and small action icons on light surfaces use dark amber #8A4B00.",
+    "Validate contrast at implementation: normal text >=4.5:1, large text and essential nontext controls >=3:1.",
+    "Use text plus icon for all status changes; never color alone."
+  ],
+  "image_corrections": [
+    "Light master Start in visual board must be disabled because master is playing.",
+    "Any active-looking Stop on a stopped sampler must be disabled.",
+    "Remove any decorative USB MIDI dropdown: the product does not have a global USB transport selector.",
+    "Component board compact <=380 label is illustrative and incorrect as a breakpoint: compact mode is width <580, minimum width is 380.",
+    "Dark theme is not forced default: follow system is the default.",
+    "Reduced motion and stopped are separate states: reduced-motion playing may use static active status; stopped has no lit segments.",
+    "Image text, swatch hex strings and gradients are illustrative; use these explicit values and flat surfaces, not sampled pixels.",
+    "V2 compact preview remains too horizontally dense: actual compact layout must stack display above transport per the earlier responsive rule.",
+    "V2 light and compact previews depict a lit Start while playing: actual Start remains disabled when target already plays.",
+    "V3 dark display frame and muted gradients remain illustrative; implementation should avoid simulated surface lighting.",
+    "V3 does not redraw compact mode: preserve the 580 pt breakpoint and 380 pt minimum width from the existing layout specification."
+  ],
+  "visual_board": "ui-quiet-v3.png",
+  "tactile_effects": {
+    "principle": "Near-flat surfaces; distinguish actions by subtle tonal contrast and restrained edges.",
+    "units": "logical points",
+    "button": {
+      "radius": 4,
+      "height": 32,
+      "elevation": 0,
+      "borderWidth": 1,
+      "shadow": "None by default; optional barely perceptible 0.5 pt contact shadow only when needed",
+      "hover": "Small face lightness increase, no lift or glow",
+      "pressed": "Slightly darker fill, no translation",
+      "disabled": "Muted glyph and face, no hover effect",
+      "focus": "Single clear outer ring with 2 pt offset; not a halo"
+    },
+    "display": "Flat dark field with a fine edge, no recessed well, bevel or bloom",
+    "menu": "Same subtle field treatment; short popup shadow only to convey stacking",
+    "information": "Thin separators, no individual row card outlines or shadows",
+    "motion": {
+      "hoverMilliseconds": 100,
+      "pressMilliseconds": 60,
+      "reducedMotion": "Immediate tonal changes"
+    },
+    "lightTheme": "Dark amber action text/icons on light controls; bright amber reserved for dark digital displays."
+  }
+}

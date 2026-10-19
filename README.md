@@ -1,0 +1,72 @@
+# MIDI Clock Controller
+
+macOS 原生 USB MIDI 主时钟。SwiftUI + CoreMIDI，无第三方依赖，支持 macOS 13+。
+
+开发协作请阅读 [贡献流程](CONTRIBUTING.md) 和 [仓库开发规则](AGENTS.md)。
+
+## 使用：主控优先，按需独立
+
+1. 连接 MIDI 设备，把设备时钟源设为 USB MIDI / External，并开启接收 Start/Stop。
+2. 设备默认「跟随主控」。输入顶部 BPM 后回车或离开输入框，点击「开始」同时启动跟随设备。
+3. 顶部的改速、开始、停止只影响跟随设备。主控区始终显示操作范围和独立设备数量。
+4. 需要特殊设置时，在设备行切换为「独立控制」。当前播放不中断，展开该设备自己的 BPM、开始、停止。
+5. 切回「跟随主控」会采用主控的速度和播放状态。已播放设备不强制重置音序位置，因此中途加入不保证小节位置一致；需要从头对齐时，停止主控后统一开始。
+6. 右上角「全部停止」停止所有设备，包括独立设备。
+
+快捷键：⌘Return 开始主控，⌘. 停止主控，⇧⌘. 全部停止。
+
+每台设备有独立状态和错误提示。断线或发送失败只停止该设备；重连后保持停止，主控运行时显示「等待开始」，点击「加入同步」即可加入，其他播放中的设备不重启。
+
+每次启动应用，在线设备默认跟随主控，但不自动播放。保存主控速度；独立速度按设备 ID 保存。切换模式时使用当前速度，便于无中断接管。默认展示所有系统 MIDI 输出（含 USB、接口、虚拟端口）；连接重复路由时，应确保外部设备不会同时收到两路时钟。暂不支持 Continue、Tap Tempo、每设备延迟补偿和速度比例。
+
+## 外观与窗口
+
+右上角半明半暗图标可选择「跟随系统 / 浅色 / 深色」，选择会自动保存。深色为石墨灰，浅色为灰白，两种主题都使用琥珀色数码屏。窗口宽度固定为 380 pt，高度可调（最低 360 pt，默认 560 pt）；内容可滚动，顶部「全部停止」始终可见。
+
+BPM 显示与加减键为一体化模块。点击数字进入编辑：↑ / ↓ 每次微调草稿 0.1 BPM，Enter 或点击外部确认，Esc 取消并恢复编辑前数值。允许范围为 20–300 BPM。
+
+## 构建
+
+需要 Xcode 或包含 macOS SDK 的 Swift 5.9+ 工具链：
+
+```sh
+zsh scripts/build-app.sh
+open "dist/MIDI Clock.app"
+```
+
+可用 Xcode 打开 `Package.swift`。app 使用本地 ad-hoc 签名，尚未签名公证用于公开分发。
+
+## 时钟与同步
+
+- 每设备使用独立 CoreMIDI 引擎，状态和故障隔离。系统管理设备、USB 传输、协议转换和未来时间戳发送。
+- 时钟使用 host time、专用串行队列和绝对时间轴，24 PPQN；每 2 ms 补充未来 8 ms 的消息。Start / Clock / Stop 为 MIDI 1.0 UMP System 消息，不要求硬件支持 MIDI 2.0。
+- 主控先准备所有引擎，再提交共同的未来启动时间（约 50 ms）；开始后 1 ms 发首个 Clock。主控停止也提交共同时间，独立停止通常约 9 ms。系统调度压力可能增加延迟。
+- 主控改速约 50 ms 后，在各引擎的下一时钟点切换间隔；共同起点、同速且未受调度延误影响的引擎保持一致的时间戳。独立改速保留下一个待发拍点，再采用新间隔。
+- 轻微迟到会整体后移后续脉冲以避免压缩间隔；超过一个间隔或 50 ms（取较小值）则停止该设备并报错。恢复不会补发一串旧脉冲。
+- 不清空整个 destination 的输出队列，以免影响其他软件。停止、重启和退出会排空本引擎已经安排的 Stop，避免旧消息干扰新运行。
+- 软件输出状态不代表硬件确认同步。不同 USB 路径、外设处理、单个引擎的迟到恢复仍可能产生相位偏差；这不是硬实时保证。
+
+## 验证
+
+```sh
+CLANG_MODULE_CACHE_PATH="$PWD/.build/clang-cache" swift test --disable-sandbox
+```
+
+测试覆盖绝对时间轴、百万脉冲误差、连续改速、快速启停、部分发送失败、共同启停时间、独立引擎速度、断线恢复、模式切换和主控/独立隔离。集成测试使用私有虚拟端口，不向物理设备发送消息。CoreMIDI 不可用时会跳过；设置 `REQUIRE_MIDI_TESTS=1` 可要求集成测试必须运行。
+
+`PreviewSupport.swift` 仅在 Debug 中编译，专用 bundle ID `local.midi-clock-controller.preview` 启动模拟界面，不创建任何 MIDI 连接。正常发布版不包含预览设备。
+
+## 项目结构
+
+- `Sources/ClockCore/`：时钟时间轴和 MIDI 调度。
+- `Sources/MIDIClockController/AppModel.swift`：主控与每设备状态、模式切换、断线恢复。
+- `Sources/MIDIClockController/MIDIClockApp.swift`：主控优先的原生界面。
+- `Sources/MIDIClockController/RetroComponents.swift`、`ClockTheme.swift`：复古 UI 组件与亮暗主题。
+- `Sources/MIDIClockController/OutsideClickObserver.swift`：输入框外点击和编辑快捷键。
+- `Tests/ClockCoreTests/`、`Tests/ControllerTests/`：时序与交互状态测试。
+- `scripts/build-app.sh`：构建和本地签名。
+- `dist/MIDI Clock.app`：生成的正式应用，不作为源码管理。
+- `design/retro-precision/`：历史视觉提案和组件稿；当前设计以 `DESIGN.md` 为准。
+- `.build/`：可随时删除的 Swift 构建缓存，下次构建自动生成。
+
+官方参考：[CoreMIDI](https://developer.apple.com/documentation/coremidi)、[SwiftUI](https://developer.apple.com/documentation/swiftui)、[MIDI 消息说明](https://midi.org/about-midi-part-3midi-messages)。接口已通过 Context7 官方文档及本机 SDK 核对。
