@@ -4,6 +4,14 @@ macOS 原生 USB MIDI 主时钟。SwiftUI + CoreMIDI，无第三方依赖，支�
 
 开发协作请阅读 [贡献流程](CONTRIBUTING.md) 和 [仓库开发规则](AGENTS.md)。
 
+## 下载安装
+
+在 [v0.1.0 Release](https://github.com/lenuxo/midi-clock-controller/releases/tag/v0.1.0) 下载 `MIDI-Clock-v0.1.0-macOS-arm64.zip`，解压后将 `MIDI Clock.app` 拖入「应用程序」。预编译应用需要 **Apple Silicon（M 系列芯片）和 macOS 13 或更高版本**，不包含 Intel 版本，也不需要安装 Xcode。
+
+当前应用使用 ad-hoc 签名，未使用 Developer ID 签名、未经过 Apple 公证。首次打开可能被 macOS 拦截：确认下载来源可信后，先尝试打开应用，再到「系统设置 → 隐私与安全性」找到对应提示，选择「仍要打开」，按系统提示确认。参见 [Apple 官方说明](https://support.apple.com/102445)。
+
+Release 同时提供 `SHA256SUMS.txt`。将它与 ZIP 放在同一目录，在该目录运行 `shasum -a 256 -c SHA256SUMS.txt` 可检查下载是否完整。完整安装与使用说明见 [v0.1.0 发布说明](docs/releases/v0.1.0.md)。
+
 ## 使用：主控优先，按需独立
 
 1. 连接 MIDI 设备，把设备时钟源设为 USB MIDI / External，并开启接收 Start/Stop。
@@ -24,6 +32,8 @@ macOS 原生 USB MIDI 主时钟。SwiftUI + CoreMIDI，无第三方依赖，支�
 右上角半明半暗图标可选择「跟随系统 / 浅色 / 深色」，选择会自动保存。深色为石墨灰，浅色为灰白，两种主题都使用琥珀色数码屏。窗口宽度固定为 380 pt，高度可调（最低 360 pt，默认 560 pt）；内容可滚动，顶部「全部停止」始终可见。
 
 BPM 显示与加减键为一体化模块。点击数字进入编辑：↑ / ↓ 每次微调草稿 0.1 BPM，Enter 或点击外部确认，Esc 取消并恢复编辑前数值。允许范围为 20–300 BPM。
+
+加减按钮短按调整 0.1 BPM，长按约 0.4 秒后开始连续调整，持续越久越快，松开或移出按钮即停止。没有输入框处于编辑状态时，↑ / ↓ 直接调整主控 BPM，支持相同长按加速，不改变独立设备。切换应用、窗口或打开菜单会中止长按；下一次按下重新从精细步长开始。
 
 ## 构建
 
@@ -64,7 +74,8 @@ CLANG_MODULE_CACHE_PATH="$PWD/.build/clang-cache" swift test --disable-sandbox
 - `Sources/MIDIClockController/RetroComponents.swift`、`ClockTheme.swift`：复古 UI 组件与亮暗主题。
 - `Sources/MIDIClockController/OutsideClickObserver.swift`：输入框外点击和编辑快捷键。
 - `Tests/ClockCoreTests/`、`Tests/ControllerTests/`：时序与交互状态测试。
-- `scripts/build-app.sh`：构建和本地签名。
+- `Resources/AppIcon.png`：应用图标原稿；构建时生成多尺寸 ICNS。
+- `scripts/build-app.sh`：构建、生成图标资源和本地签名。
 - `dist/MIDI Clock.app`：生成的正式应用，不作为源码管理。
 - `design/retro-precision/`：历史视觉提案和组件稿；当前设计以 `DESIGN.md` 为准。
 - `.build/`：可随时删除的 Swift 构建缓存，下次构建自动生成。

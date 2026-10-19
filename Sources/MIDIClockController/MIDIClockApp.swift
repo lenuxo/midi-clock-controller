@@ -85,6 +85,9 @@ struct ContentView: View {
         .frame(minWidth: 380, maxWidth: 380, minHeight: 360, maxHeight: .infinity)
         .tint(palette.accent)
         .preferredColorScheme(scheme)
+        .background(MasterTempoKeyboard { delta in
+            model.setMasterBPM(model.masterBPM + delta)
+        })
         .toolbar {
             ToolbarItem(placement: .navigation) {
                 Text("MIDI CLOCK").font(.system(size: 13, weight: .bold, design: .monospaced)).tracking(1)
@@ -134,8 +137,7 @@ struct ContentView: View {
             HStack {
                 Spacer(minLength: 0)
                 TempoControl(text: $model.masterBPMText, label: "主控速度 BPM", palette: palette, commit: model.commitMasterBPM,
-                             increment: { model.setMasterBPM(model.masterBPM + 0.1) },
-                             decrement: { model.setMasterBPM(model.masterBPM - 0.1) })
+                             step: { model.setMasterBPM(model.masterBPM + $0) })
                 Spacer(minLength: 0)
             }
             HStack {
@@ -198,8 +200,7 @@ struct DeviceRow: View {
             if !device.followsMaster {
                 HStack(spacing: 10) {
                     TempoControl(text: $device.bpmText, label: "\(device.output.name)独立 BPM", palette: palette, small: true, commit: device.commitBPM,
-                                 increment: { device.setBPM(device.bpm + 0.1) },
-                                 decrement: { device.setBPM(device.bpm - 0.1) })
+                                 step: { device.setBPM(device.bpm + $0) })
                     Spacer(minLength: 0)
                     HStack(spacing: 6) {
                         TransportKey(title: "开始", symbol: "play.fill", palette: palette, primary: true, small: true, action: { device.start() })

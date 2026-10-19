@@ -44,8 +44,7 @@ struct TempoControl: View {
     let palette: ClockPalette
     var small = false
     let commit: () -> Bool
-    let increment: () -> Void
-    let decrement: () -> Void
+    let step: (Double) -> Void
     @FocusState private var focused: Bool
     @State private var editing = false
     @State private var originalText = ""
@@ -81,14 +80,12 @@ struct TempoControl: View {
             .help("回车或点击外部确认 · Esc 取消 · ↑↓ 微调 0.1 · 20–300 BPM")
             Rectangle().fill(palette.border).frame(width: 1)
             VStack(spacing: 0) {
-                Button { adjust(increment) } label: {
-                    Image(systemName: "plus").frame(maxWidth: .infinity, maxHeight: .infinity).contentShape(Rectangle())
-                }.accessibilityLabel("\(label)增加 0.1 BPM").help("增加 0.1 BPM")
+                TempoHoldButton(symbol: "+", label: "\(label)增加 BPM", palette: palette, direction: 1, step: adjust)
+                    .frame(maxHeight: .infinity)
                 Rectangle().fill(palette.border).frame(height: 1)
-                Button { adjust(decrement) } label: {
-                    Image(systemName: "minus").frame(maxWidth: .infinity, maxHeight: .infinity).contentShape(Rectangle())
-                }.accessibilityLabel("\(label)减少 0.1 BPM").help("减少 0.1 BPM")
-            }.frame(width: 38).buttonStyle(TempoAdjustmentStyle(palette: palette))
+                TempoHoldButton(symbol: "−", label: "\(label)减少 BPM", palette: palette, direction: -1, step: adjust)
+                    .frame(maxHeight: .infinity)
+            }.frame(width: 38)
         }
         .frame(height: small ? 64 : 80)
         .fixedSize(horizontal: true, vertical: false)
@@ -114,11 +111,11 @@ struct TempoControl: View {
         editing = false
         focused = false
     }
-    private func adjust(_ action: () -> Void) {
+    private func adjust(_ delta: Double) {
         if editing && !commit() { return }
         focused = false
         editing = false
-        action()
+        step(delta)
     }
 
 }
@@ -136,20 +133,6 @@ struct InstrumentButtonStyle: ButtonStyle {
             .background(emphasized && enabled ? palette.digits.opacity(configuration.isPressed ? 0.7 : 1) : (hovered || configuration.isPressed ? palette.border : palette.panel), in: RoundedRectangle(cornerRadius: 4))
             .overlay(RoundedRectangle(cornerRadius: 4).stroke(emphasized && enabled ? palette.digits : palette.secondary.opacity(0.65), lineWidth: 1))
             .opacity(enabled ? 1 : 0.35)
-            .onHover { hovered = $0 }
-    }
-}
-
-/// Flat, joined keys share the display's outer frame and retain independent hit targets.
-private struct TempoAdjustmentStyle: ButtonStyle {
-    let palette: ClockPalette
-    @Environment(\.isEnabled) private var enabled
-    @State private var hovered = false
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .font(.system(size: 13, weight: .semibold))
-            .foregroundStyle(palette.digits.opacity(enabled ? 1 : 0.35))
-            .background(palette.digits.opacity(configuration.isPressed ? 0.24 : hovered ? 0.13 : 0.04))
             .onHover { hovered = $0 }
     }
 }
