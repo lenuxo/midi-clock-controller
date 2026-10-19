@@ -6,11 +6,11 @@ macOS 原生 USB MIDI 主时钟。SwiftUI + CoreMIDI，无第三方依赖，支�
 
 ## 下载安装
 
-在 [v0.1.0 Release](https://github.com/lenuxo/midi-clock-controller/releases/tag/v0.1.0) 下载 `MIDI-Clock-v0.1.0-macOS-arm64.zip`，解压后将 `MIDI Clock.app` 拖入「应用程序」。预编译应用需要 **Apple Silicon（M 系列芯片）和 macOS 13 或更高版本**，不包含 Intel 版本，也不需要安装 Xcode。
+在 [v0.1.0 Release](https://github.com/lenuxo/midi-clock-controller/releases/tag/v0.1.0) 下载 `MIDI-Clock-v0.1.0-macOS-arm64.dmg`，双击打开后将 `MIDI Clock.app` 拖到旁边的 `Applications` 文件夹，拷贝完成后推出磁盘映像，再从「应用程序」启动。也提供 ZIP 作为备用。预编译应用需要 **Apple Silicon（M 系列芯片）和 macOS 13 或更高版本**，不包含 Intel 版本，也不需要安装 Xcode。
 
 当前应用使用 ad-hoc 签名，未使用 Developer ID 签名、未经过 Apple 公证。首次打开可能被 macOS 拦截：确认下载来源可信后，先尝试打开应用，再到「系统设置 → 隐私与安全性」找到对应提示，选择「仍要打开」，按系统提示确认。参见 [Apple 官方说明](https://support.apple.com/102445)。
 
-Release 同时提供 `SHA256SUMS.txt`。将它与 ZIP 放在同一目录，在该目录运行 `shasum -a 256 -c SHA256SUMS.txt` 可检查下载是否完整。完整安装与使用说明见 [v0.1.0 发布说明](docs/releases/v0.1.0.md)。
+Release 同时提供 `MIDI-Clock-v0.1.0-macOS-arm64.dmg.sha256`。将它与 DMG 放在同一目录，在该目录运行 `shasum -a 256 -c MIDI-Clock-v0.1.0-macOS-arm64.dmg.sha256` 可检查下载是否完整。ZIP 使用 `SHA256SUMS.txt` 校验。完整安装与使用说明见 [v0.1.0 发布说明](docs/releases/v0.1.0.md)。
 
 ## 使用：主控优先，按需独立
 
