@@ -4,6 +4,74 @@ import XCTest
 final class TimingRegressionTests: XCTestCase {
     private let output = MIDIOutput(id: 1, endpoint: 1, name: "Test only")
 
+    func testContinueDrainsStopAndResetsTempoWithoutOldClocks() throws {
+        let host = Host()
+        let engine = host.engine()
+        try engine.start(output: output, bpm: 120)
+        host.time = 0.002
+        engine.pumpForTesting()
+        engine.scheduleBPM(20, at: 0.2)
+        try engine.scheduleStop(at: 0.05)
+        let oldStop = try XCTUnwrap(host.events.last)
+        try engine.resume(outputs: [output], bpm: 300)
+        let resume = try XCTUnwrap(host.events.last)
+        XCTAssertEqual(resume.status, 0xFB)
+        XCTAssertGreaterThan(resume.time, oldStop.time)
+        let offset = host.events.count
+        for _ in 0..<150 {
+            host.time += 0.002
+            engine.pumpForTesting()
+        }
+        let ticks = Array(host.events.dropFirst(offset)).filter { $0.status == 0xF8 }
+        XCTAssertGreaterThan(ticks.count, 30)
+        XCTAssertEqual(try XCTUnwrap(ticks.first).time - resume.time, 0.001, accuracy: 1e-12)
+        for (a, b) in zip(ticks, ticks.dropFirst()) {
+            XCTAssertEqual(b.time - a.time, 60 / (300 * 24), accuracy: 1e-12)
+        }
+        try engine.stop()
+        for (a, b) in zip(host.events, host.events.dropFirst()) { XCTAssertLessThan(a.time, b.time) }
+    }
+
+    func testRapidMixedStartContinueStopHasNoBacklogOrDuplicateTransport() throws {
+        let host = Host()
+        let engine = host.engine()
+        for index in 0..<100 {
+            let before = host.time
+            if index.isMultiple(of: 2) { try engine.start(output: output, bpm: 120) }
+            else { try engine.resume(outputs: [output], bpm: 300) }
+            // Repeated play commands while running must not reset the receiver.
+            try engine.resume(outputs: [output], bpm: 20)
+            try engine.start(output: output, bpm: 20)
+            try engine.scheduleStop(at: host.time + 0.05)
+            engine.drainPendingStop()
+            XCTAssertLessThan(host.time - before, 0.051)
+            engine.pumpForTesting()
+        }
+        XCTAssertEqual(host.events.count, 200)
+        for index in 0..<100 {
+            XCTAssertEqual(host.events[index * 2].status, index.isMultiple(of: 2) ? 0xFA : 0xFB)
+            XCTAssertEqual(host.events[index * 2 + 1].status, 0xFC)
+        }
+        for (a, b) in zip(host.events, host.events.dropFirst()) { XCTAssertLessThan(a.time, b.time) }
+    }
+
+    func testOldFailureCannotInvalidateContinueRun() throws {
+        let host = Host()
+        let engine = host.engine()
+        var failures = 0
+        engine.onFailure = { _ in failures += 1 }
+        try engine.start(output: output, bpm: 300)
+        host.time = 0.1
+        engine.pumpForTesting()
+        try engine.resume(outputs: [output], bpm: 120)
+        let flushed = expectation(description: "old failure delivered")
+        DispatchQueue.main.async { flushed.fulfill() }
+        wait(for: [flushed], timeout: 2)
+        XCTAssertEqual(failures, 0)
+        engine.shutdown()
+        XCTAssertEqual(host.events.map(\.status), [0xFA, 0xFC, 0xFB, 0xFC])
+    }
+
     func testLateWakeDoesNotCompressNextInterval() throws {
         let host = Host()
         let engine = host.engine()

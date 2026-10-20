@@ -7,6 +7,7 @@ import ClockCore
 protocol DeviceTransport: AnyObject {
     var onFailure: ((String) -> Void)? { get set }
     func start(outputs: [MIDIOutput], bpm: Double, scheduledAt: Double?) throws
+    func resume(outputs: [MIDIOutput], bpm: Double, scheduledAt: Double?) throws
     func setBPM(_ bpm: Double)
     func scheduleBPM(_ bpm: Double, at deadline: Double)
     func drainPendingStop()
@@ -16,6 +17,14 @@ protocol DeviceTransport: AnyObject {
 }
 extension MIDIClockEngine: DeviceTransport {}
 
+enum PlaybackAction {
+    case start, resume, stop
+
+    init(running: Bool, canContinue: Bool) {
+        self = running ? .stop : canContinue ? .resume : .start
+    }
+}
+
 @MainActor
 final class DeviceControl: ObservableObject, Identifiable {
     let id: Int32
@@ -23,6 +32,7 @@ final class DeviceControl: ObservableObject, Identifiable {
     @Published var followsMaster = true
     @Published private(set) var online = true
     @Published private(set) var running = false
+    @Published private(set) var canContinue = false
     @Published private(set) var bpm: Double
     @Published var bpmText: String
     @Published var error: String?
@@ -39,6 +49,17 @@ final class DeviceControl: ObservableObject, Identifiable {
             ?? defaults.object(forKey: "bpm") as? Double ?? 120
         bpm = ClockSchedule.clamp(saved)
         bpmText = String(format: "%.1f", ClockSchedule.clamp(saved))
+    }
+
+    var playbackAction: PlaybackAction { PlaybackAction(running: running, canContinue: canContinue) }
+
+    func performPlaybackAction() {
+        guard online else { return }
+        switch playbackAction {
+        case .start: start()
+        case .resume: resume()
+        case .stop: stop()
+        }
     }
 
     static func parseBPM(_ text: String) -> Double? {
@@ -73,6 +94,7 @@ final class DeviceControl: ObservableObject, Identifiable {
                 let created = try factory()
                 created.onFailure = { [weak self] message in
                     self?.running = false
+                    self?.canContinue = false
                     self?.error = message
                 }
                 engine = created
@@ -83,12 +105,22 @@ final class DeviceControl: ObservableObject, Identifiable {
     }
 
     func start(at deadline: Double? = nil) {
+        begin(at: deadline, continuing: false)
+    }
+
+    func resume(at deadline: Double? = nil) {
+        guard canContinue else { return }
+        begin(at: deadline, continuing: true)
+    }
+
+    private func begin(at deadline: Double?, continuing: Bool) {
         guard online, !running, commitBPM(), prepare() else { return }
         do {
-            try engine?.start(outputs: [output], bpm: bpm, scheduledAt: deadline)
+            if continuing { try engine?.resume(outputs: [output], bpm: bpm, scheduledAt: deadline) }
+            else { try engine?.start(outputs: [output], bpm: bpm, scheduledAt: deadline) }
             running = true
             error = nil
-        } catch { self.error = error.localizedDescription }
+        } catch { canContinue = false; self.error = error.localizedDescription }
     }
 
     func stop(at deadline: Double? = nil) {
@@ -96,7 +128,8 @@ final class DeviceControl: ObservableObject, Identifiable {
         do {
             if let deadline { try engine?.scheduleStop(at: deadline) }
             else { try engine?.stop() }
-        } catch { self.error = error.localizedDescription }
+            canContinue = true
+        } catch { canContinue = false; self.error = error.localizedDescription }
         running = false
     }
 
@@ -104,12 +137,14 @@ final class DeviceControl: ObservableObject, Identifiable {
         guard let replacement else {
             guard online else { return }
             stop()
+            canContinue = false
             online = false
             error = "设备已断开；其他设备继续播放。"
             return
         }
         if !online || output.endpoint != replacement.endpoint {
             stop()
+            canContinue = false
             error = nil
         }
         output = replacement
@@ -161,6 +196,19 @@ final class AppModel: ObservableObject {
     var independentCount: Int { onlineDevices.filter { !$0.followsMaster }.count }
     var playingCount: Int { devices.filter(\.running).count }
     var pendingFollowers: [DeviceControl] { followers.filter { !$0.running } }
+
+    var resumableFollowers: [DeviceControl] { pendingFollowers.filter(\.canContinue) }
+    var playbackAction: PlaybackAction {
+        PlaybackAction(running: followers.contains(where: \.running), canContinue: !resumableFollowers.isEmpty)
+    }
+
+    func performPlaybackAction() {
+        switch playbackAction {
+        case .start: startMaster()
+        case .resume: continueMaster()
+        case .stop: stopMaster()
+        }
+    }
 
     func setFollowing(_ device: DeviceControl, _ following: Bool) {
         guard device.followsMaster != following else { return }
@@ -216,6 +264,16 @@ final class AppModel: ObservableObject {
         pendingFollowers.forEach { $0.start(at: deadline) }
         masterRunning = followers.contains(where: \.running)
         notice = pendingFollowers.isEmpty ? nil : "部分跟随设备未能开始，请查看设备行中的提示。"
+    }
+
+    func continueMaster() {
+        let targets = pendingFollowers.filter(\.canContinue)
+        guard !targets.isEmpty, commitMasterBPM() else { return }
+        targets.forEach { _ = $0.prepare() }
+        let deadline = MIDIClockEngine.batchDeadline()
+        targets.forEach { $0.resume(at: deadline) }
+        masterRunning = followers.contains(where: \.running)
+        notice = pendingFollowers.isEmpty ? nil : "部分设备无法继续；请查看设备提示，或停止后从头开始。"
     }
 
     func stopMaster() {

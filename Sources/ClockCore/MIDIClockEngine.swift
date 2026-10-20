@@ -95,6 +95,14 @@ public final class MIDIClockEngine {
     }
 
     public func start(outputs: [MIDIOutput], bpm: Double, scheduledAt: Double? = nil) throws {
+        try begin(outputs: outputs, bpm: bpm, scheduledAt: scheduledAt, status: 0xFA)
+    }
+
+    public func resume(outputs: [MIDIOutput], bpm: Double, scheduledAt: Double? = nil) throws {
+        try begin(outputs: outputs, bpm: bpm, scheduledAt: scheduledAt, status: 0xFB)
+    }
+
+    private func begin(outputs: [MIDIOutput], bpm: Double, scheduledAt: Double?, status: UInt8) throws {
         try serialized {
             guard schedule == nil else { return }
             drainTransport()
@@ -107,9 +115,9 @@ public final class MIDIClockEngine {
             let start = max(now() + lookAhead, transportBoundary + 0.001, scheduledAt ?? 0)
             lastSubmitted = start
             schedule = ClockSchedule(bpm: bpm, start: start + 0.001)
-            do { try send(0xFA, at: start) }
+            do { try send(status, at: start) }
             catch {
-                // Some outputs may have accepted Start. Stop all before reporting failure.
+                // Some outputs may have accepted Start or Continue. Stop all before reporting failure.
                 try? stopOnQueue()
                 throw error
             }

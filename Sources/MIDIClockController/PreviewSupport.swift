@@ -6,6 +6,7 @@ import ClockCore
 private final class PreviewTransport: DeviceTransport {
     var onFailure: ((String) -> Void)?
     func start(outputs: [MIDIOutput], bpm: Double, scheduledAt: Double?) throws {}
+    func resume(outputs: [MIDIOutput], bpm: Double, scheduledAt: Double?) throws {}
     func setBPM(_ bpm: Double) {}
     func scheduleBPM(_ bpm: Double, at deadline: Double) {}
     func drainPendingStop() {}
@@ -17,6 +18,7 @@ private final class PreviewTransport: DeviceTransport {
 @MainActor func previewModel() -> AppModel {
     let model = AppModel(defaults: UserDefaults(suiteName: UUID().uuidString)!, discover: false,
                          factory: { PreviewTransport() })
+    if ProcessInfo.processInfo.environment["MIDI_CLOCK_PREVIEW"] == "empty" { return model }
     model.reconcile([
         MIDIOutput(id: 1, endpoint: 1, name: "Drum Machine · USB MIDI"),
         MIDIOutput(id: 2, endpoint: 2, name: "Synthesizer · USB MIDI"),

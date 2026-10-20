@@ -77,29 +77,32 @@ final class MIDIIntegrationTests: XCTestCase {
         XCTAssertEqual(capture.snapshot().count, first.count, "Stop must end clock output")
         try engine.start(outputs: [output, output2], bpm: 120)
         try engine.stop()
-        try engine.start(outputs: [output, output2], bpm: 120)
+        try engine.resume(outputs: [output, output2], bpm: 120)
         Thread.sleep(forTimeInterval: 0.08)
         engine.shutdown()
         Thread.sleep(forTimeInterval: 0.04)
         let all = capture.snapshot()
-        XCTAssertEqual(all.filter { $0.status == 0xFA }.count, 3)
+        XCTAssertEqual(all.filter { $0.status == 0xFA }.count, 2)
+        XCTAssertEqual(all.filter { $0.status == 0xFB }.count, 1)
         XCTAssertEqual(all.filter { $0.status == 0xFC }.count, 3)
         XCTAssertEqual(all.last?.status, 0xFC)
         for pair in zip(all, all.dropFirst()) { XCTAssertLessThan(pair.0.time, pair.1.time) }
 
         // Stress the real system transport, not just the deterministic test sink.
-        for _ in 0..<100 {
-            try engine.start(outputs: [output, output2], bpm: 300)
+        for index in 0..<100 {
+            if index.isMultiple(of: 2) { try engine.start(outputs: [output, output2], bpm: 300) }
+            else { try engine.resume(outputs: [output, output2], bpm: 300) }
             try engine.stop()
         }
         Thread.sleep(forTimeInterval: 0.04)
         let stress = Array(capture.snapshot().dropFirst(all.count))
-        XCTAssertEqual(stress.filter { $0.status == 0xFA }.count, 100)
+        XCTAssertEqual(stress.filter { $0.status == 0xFA }.count, 50)
+        XCTAssertEqual(stress.filter { $0.status == 0xFB }.count, 50)
         XCTAssertEqual(stress.filter { $0.status == 0xFC }.count, 100)
         var playing = false
         for event in stress {
             switch event.status {
-            case 0xFA: XCTAssertFalse(playing); playing = true
+            case 0xFA, 0xFB: XCTAssertFalse(playing); playing = true
             case 0xFC: XCTAssertTrue(playing); playing = false
             case 0xF8: XCTAssertTrue(playing, "Clock outside Start/Stop")
             default: XCTFail("Unexpected status")
@@ -159,6 +162,38 @@ final class MIDIIntegrationTests: XCTestCase {
             XCTAssertTrue(gaps.contains { abs($0 - 60 / (bpm * 24)) < 0.00001 })
         }
 
+        // Resume two independent engines together after their Stop queues have drained.
+        engine.drainPendingStop()
+        secondEngine.drainPendingStop()
+        let resumeOffset = capture.snapshot().count
+        let resumeOffset2 = capture2.snapshot().count
+        let sharedResume = MIDIClockEngine.batchDeadline()
+        try engine.resume(outputs: [output], bpm: 180, scheduledAt: sharedResume)
+        try secondEngine.resume(outputs: [output2], bpm: 180, scheduledAt: sharedResume)
+        Thread.sleep(forTimeInterval: 0.15)
+        let sharedStop = MIDIClockEngine.batchDeadline()
+        try engine.scheduleStop(at: sharedStop)
+        try secondEngine.scheduleStop(at: sharedStop)
+        engine.shutdown()
+        secondEngine.shutdown()
+        Thread.sleep(forTimeInterval: 0.04)
+        let resumed = Array(capture.snapshot().dropFirst(resumeOffset))
+        let resumed2 = Array(capture2.snapshot().dropFirst(resumeOffset2))
+        XCTAssertEqual(resumed.first?.status, 0xFB)
+        XCTAssertEqual(resumed2.first?.status, 0xFB)
+        XCTAssertEqual(resumed.first?.time, resumed2.first?.time)
+        XCTAssertEqual(resumed.last?.time, resumed2.last?.time)
+        for events in [resumed, resumed2] {
+            XCTAssertEqual(events.last?.status, 0xFC)
+            XCTAssertFalse(events.contains { $0.status == 0xFA })
+            let ticks = events.filter { $0.status == 0xF8 }
+            XCTAssertGreaterThan(ticks.count, 5)
+            XCTAssertEqual((Double(try XCTUnwrap(ticks.first).time) - Double(try XCTUnwrap(events.first).time)) / frequency,
+                           0.001, accuracy: 0.00001)
+            for (a, b) in zip(ticks, ticks.dropFirst()) {
+                XCTAssertGreaterThanOrEqual(Double(b.time - a.time) / frequency, 60 / (180 * 24) - 0.00001)
+            }
+        }
     }
 }
 

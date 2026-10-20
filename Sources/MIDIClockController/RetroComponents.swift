@@ -43,6 +43,7 @@ struct TempoControl: View {
     let label: String
     let palette: ClockPalette
     var small = false
+    var expanded = false
     let commit: () -> Bool
     let step: (Double) -> Void
     @FocusState private var focused: Bool
@@ -76,6 +77,7 @@ struct TempoControl: View {
                                                   handlesKeys: focused, onCancel: cancelEditing, onStep: stepDraft))
             Text("BPM").font(.system(size: 10, weight: .bold, design: .monospaced)).foregroundStyle(palette.digits).padding(.bottom, 2)
         }
+            .frame(maxWidth: expanded ? .infinity : nil)
             .padding(12)
             .help("回车或点击外部确认 · Esc 取消 · ↑↓ 微调 0.1 · 20–300 BPM")
             Rectangle().fill(palette.border).frame(width: 1)
@@ -88,7 +90,7 @@ struct TempoControl: View {
             }.frame(width: 38)
         }
         .frame(height: small ? 64 : 80)
-        .fixedSize(horizontal: true, vertical: false)
+        .fixedSize(horizontal: !expanded, vertical: false)
         .background(palette.display)
         .clipShape(RoundedRectangle(cornerRadius: 4))
         .overlay(RoundedRectangle(cornerRadius: 4).stroke(focused ? palette.digits : palette.border, lineWidth: focused ? 2 : 1))
@@ -137,25 +139,49 @@ struct InstrumentButtonStyle: ButtonStyle {
     }
 }
 
-struct TransportKey: View {
-    let title: String
-    let symbol: String
+/// One primary action in a stable position; restart is only offered after stopping.
+struct PlaybackControls: View {
+    let action: PlaybackAction
     let palette: ClockPalette
-    var primary = false
-    var small = false
-    var shortcut: KeyboardShortcut? = nil
-    let action: () -> Void
+    var detail: String? = nil
+    var status: String? = nil
+    var restartTitle = "从头开始"
+    let perform: () -> Void
+    let restart: () -> Void
+
+    private var title: String {
+        switch action {
+        case .start: return "开始播放"
+        case .resume: return "继续播放"
+        case .stop: return "停止"
+        }
+    }
+
     var body: some View {
-        VStack(spacing: 6) {
-            Button(action: action) {
-                Image(systemName: symbol)
-                    .font(.system(size: 19, weight: .bold))
-                    .foregroundStyle(primary ? palette.accent : palette.text)
-                    .frame(width: small ? 12 : 28, height: small ? 32 : 46)
-            }.buttonStyle(InstrumentButtonStyle(palette: palette))
-                .accessibilityLabel(title)
-                .keyboardShortcut(shortcut)
-            Text(title).font(.system(size: 11)).foregroundStyle(palette.secondary)
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 12) {
+                Button(action: perform) {
+                    Label(title, systemImage: action == .stop ? "stop.fill" : "play.fill")
+                        .frame(width: 96, height: 36)
+                }
+                .buttonStyle(InstrumentButtonStyle(palette: palette, emphasized: action != .stop))
+                .help(action == .stop ? "停止播放，保留当前位置" : action == .resume ? "从各自停留位置继续播放" : "从序列开头播放")
+                Spacer(minLength: 0)
+                VStack(alignment: .trailing, spacing: 4) {
+                    Label(status ?? (action == .stop ? "播放中" : action == .resume ? "已停止" : "就绪"),
+                          systemImage: action == .stop ? "play.fill" : "stop.fill")
+                        .foregroundStyle(action == .stop ? palette.playing : palette.secondary)
+                    if let detail { Text(detail).foregroundStyle(palette.secondary) }
+                }.font(.system(size: 11))
+            }
+            if action == .resume {
+                Button(restartTitle, action: restart)
+                    .buttonStyle(.plain)
+                    .font(.system(size: 11))
+                    .foregroundStyle(palette.accent)
+                    .padding(.vertical, 4)
+                    .help("放弃停止位置，从序列开头播放；主控只影响跟随设备")
+            }
         }
     }
 }
