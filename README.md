@@ -10,7 +10,7 @@ A native macOS MIDI master clock for keeping drum machines, synthesizers, and ot
 - **Start, Continue, and Stop** — play from the beginning or resume from a device’s stopped position. Stop All covers every connected device.
 - **Precise tempo control** — 20–300 BPM, 0.1 BPM adjustments, and press-and-hold acceleration, with standard 24 PPQN MIDI clock output.
 - **A focused interface** — a digital tempo display, light and dark themes, and keyboard shortcuts.
-- **Device isolation** — a disconnected or failed device does not interrupt the others; reconnecting never starts playback automatically.
+- **Device isolation** — a disconnected or failed device does not interrupt the others; reconnecting never starts playback automatically. Disconnected devices are dimmed and removed after 30 seconds unless they reconnect.
 
 ## Download & use
 

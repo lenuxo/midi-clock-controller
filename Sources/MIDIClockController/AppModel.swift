@@ -166,13 +166,27 @@ final class AppModel: ObservableObject {
     private var discovery: MIDIClockEngine?
     private var subscriptions: [Int32: AnyCancellable] = [:]
     private var sleepObserver: NSObjectProtocol?
+    private var disconnectedRemovals: [Int32: (token: UUID, cancel: () -> Void)] = [:]
+    private let scheduleRemoval: (TimeInterval, @escaping @MainActor () -> Void) -> () -> Void
+
+    private static func scheduleAfter(_ seconds: TimeInterval, action: @escaping @MainActor () -> Void) -> () -> Void {
+        let task = Task { @MainActor in
+            do { try await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000)) }
+            catch { return }
+            guard !Task.isCancelled else { return }
+            action()
+        }
+        return { task.cancel() }
+    }
     private let defaults: UserDefaults
     private let factory: () throws -> DeviceTransport
 
     init(defaults: UserDefaults = .standard, discover: Bool = true,
+         scheduleRemoval: ((TimeInterval, @escaping @MainActor () -> Void) -> () -> Void)? = nil,
          factory: @escaping () throws -> DeviceTransport = { try MIDIClockEngine() }) {
         self.defaults = defaults
         self.factory = factory
+        self.scheduleRemoval = scheduleRemoval ?? Self.scheduleAfter
         masterBPM = ClockSchedule.clamp(defaults.object(forKey: "bpm") as? Double ?? 120)
         masterBPMText = String(format: "%.1f", masterBPM)
         guard discover else { return }
@@ -246,7 +260,16 @@ final class AppModel: ObservableObject {
     func reconcile(_ outputs: [MIDIOutput]) {
         for device in devices {
             device.update(output: outputs.first { $0.id == device.id })
-
+            if device.online {
+                disconnectedRemovals.removeValue(forKey: device.id)?.cancel()
+            } else if disconnectedRemovals[device.id] == nil {
+                let id = device.id
+                let token = UUID()
+                let cancel = scheduleRemoval(30) { [weak self] in
+                    self?.removeDisconnectedDevice(id: id, token: token)
+                }
+                disconnectedRemovals[id] = (token, cancel)
+            }
         }
         for output in outputs where !devices.contains(where: { $0.id == output.id }) {
             let device = DeviceControl(output: output, defaults: defaults, factory: factory)
@@ -256,6 +279,17 @@ final class AppModel: ObservableObject {
         }
         // Reconnected followers adopt the tempo, but never unexpectedly start playing.
         followers.forEach { if $0.bpm != masterBPM { $0.setBPM(masterBPM) } }
+    }
+
+    private func removeDisconnectedDevice(id: Int32, token: UUID) {
+        // A cancelled callback may already be queued. Never let an old disconnect
+        // remove a reconnected device or one in a new 30-second grace period.
+        guard disconnectedRemovals[id]?.token == token,
+              let device = devices.first(where: { $0.id == id }), !device.online else { return }
+        disconnectedRemovals.removeValue(forKey: id)?.cancel()
+        device.shutdown()
+        subscriptions.removeValue(forKey: id)?.cancel()
+        devices.removeAll { $0.id == id }
     }
 
     func startMaster() {
@@ -292,6 +326,8 @@ final class AppModel: ObservableObject {
     }
 
     func shutdown() {
+        disconnectedRemovals.values.forEach { $0.cancel() }
+        disconnectedRemovals.removeAll()
         devices.forEach { $0.shutdown() }
         discovery?.shutdown()
         if let sleepObserver { NSWorkspace.shared.notificationCenter.removeObserver(sleepObserver) }

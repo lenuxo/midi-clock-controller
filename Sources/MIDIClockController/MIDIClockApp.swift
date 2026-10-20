@@ -42,9 +42,9 @@ struct ContentView: View {
     @AppStorage("appearance") private var appearance = "system"
     @AppStorage("interfaceZoom") private var zoomPercent = 100
     private var zoom: CGFloat { CGFloat(InterfaceZoom.clamped(zoomPercent)) / 100 }
-    @Environment(\.colorScheme) private var systemScheme
+    @Environment(\.colorScheme) private var windowScheme
     private var scheme: ColorScheme? { appearance == "dark" ? .dark : appearance == "light" ? .light : nil }
-    private var palette: ClockPalette { ClockPalette(dark: (scheme ?? systemScheme) == .dark) }
+    private var palette: ClockPalette { ClockPalette(dark: (scheme ?? windowScheme) == .dark) }
 
     var body: some View {
         GeometryReader { geometry in
@@ -114,14 +114,14 @@ struct ContentView: View {
         }
         .frame(minWidth: 380 * zoom, maxWidth: 380 * zoom, minHeight: 360 * zoom, maxHeight: .infinity)
         .tint(palette.accent)
-        .preferredColorScheme(scheme)
-        .background(WindowAppearance(background: palette.background))
+        .background(WindowAppearance(background: palette.background, preference: appearance))
         .background(MasterTempoKeyboard { delta in
             model.setMasterBPM(model.masterBPM + delta)
         })
         .toolbar {
             ToolbarItem(placement: .navigation) {
                 Text(L("app.name")).font(.system(size: 12 * zoom, weight: .semibold))
+                    .foregroundStyle(palette.text)
                     .lineLimit(1).minimumScaleFactor(0.85)
             }
             ToolbarItem(placement: .principal) { Spacer().frame(minWidth: 0, maxWidth: .infinity) }
@@ -295,5 +295,8 @@ struct DeviceRow: View {
         .padding(16)
         .background(palette.panel, in: RoundedRectangle(cornerRadius: 4))
         .overlay(RoundedRectangle(cornerRadius: 4).stroke(device.followsMaster ? palette.border : palette.accent.opacity(0.7), lineWidth: 1))
+        .saturation(device.online ? 1 : 0)
+        .opacity(device.online ? 1 : 0.55)
+        .disabled(!device.online)
     }
 }

@@ -203,3 +203,71 @@ private final class FakeTransport: DeviceTransport {
     func stop() throws { if failStop { throw MIDIError(operation: "Test stop", status: -1) } }
     func shutdown() {}
 }
+
+extension ControllerTests {
+    @MainActor
+    func testDisconnectExpiresOnceWithoutRefreshExtendingDeadline() {
+        var callbacks: [@MainActor () -> Void] = []
+        var delays: [TimeInterval] = []
+        let model = AppModel(defaults: UserDefaults(suiteName: UUID().uuidString)!, discover: false,
+                             scheduleRemoval: { delay, action in
+            delays.append(delay); callbacks.append(action); return {}
+        }, factory: { FakeTransport() })
+        let a = MIDIOutput(id: 1, endpoint: 1, name: "A")
+        let b = MIDIOutput(id: 2, endpoint: 2, name: "B")
+        model.reconcile([a, b]); model.startMaster()
+        model.reconcile([b]); model.reconcile([b])
+        XCTAssertEqual(delays, [30])
+        XCTAssertEqual(model.devices.count, 2)
+        XCTAssertFalse(model.devices[0].online)
+        XCTAssertFalse(model.devices[0].running)
+        callbacks[0]()
+        XCTAssertEqual(model.devices.map(\.id), [2])
+        XCTAssertTrue(model.devices[0].running)
+        model.reconcile([a, b])
+        XCTAssertFalse(model.devices.first { $0.id == 1 }!.running)
+        model.shutdown()
+    }
+
+    @MainActor
+    func testReconnectAndSecondDisconnectRejectStaleRemoval() {
+        var callbacks: [@MainActor () -> Void] = []
+        var cancellations = 0
+        let model = AppModel(defaults: UserDefaults(suiteName: UUID().uuidString)!, discover: false,
+                             scheduleRemoval: { _, action in
+            callbacks.append(action); return { cancellations += 1 }
+        }, factory: { FakeTransport() })
+        let output = MIDIOutput(id: 1, endpoint: 1, name: "A")
+        model.reconcile([output])
+        let original = model.devices[0]
+        model.reconcile([])
+        model.reconcile([output])
+        XCTAssertEqual(cancellations, 1)
+        callbacks[0]()
+        XCTAssertTrue(model.devices[0] === original)
+        XCTAssertTrue(original.online)
+        XCTAssertFalse(original.running)
+        model.reconcile([])
+        callbacks[0]() // Callback from the first disconnect was already queued.
+        XCTAssertEqual(model.devices.count, 1)
+        callbacks[1]()
+        XCTAssertTrue(model.devices.isEmpty)
+        model.shutdown()
+    }
+
+    @MainActor
+    func testShutdownCancelsPendingRemoval() {
+        var callback: (@MainActor () -> Void)?
+        var cancelled = false
+        let model = AppModel(defaults: UserDefaults(suiteName: UUID().uuidString)!, discover: false,
+                             scheduleRemoval: { _, action in
+            callback = action; return { cancelled = true }
+        }, factory: { FakeTransport() })
+        model.reconcile([MIDIOutput(id: 1, endpoint: 1, name: "A")])
+        model.reconcile([])
+        model.shutdown()
+        XCTAssertTrue(cancelled)
+        callback?()
+        XCTAssertEqual(model.devices.count, 1)
+    }
+}

@@ -27,6 +27,9 @@ private final class PreviewTransport: DeviceTransport {
     model.startMaster()
     model.setFollowing(model.devices[2], false)
     model.devices[2].setBPM(90)
+    if ProcessInfo.processInfo.environment["MIDI_CLOCK_PREVIEW"] == "disconnected" {
+        model.reconcile(model.devices.prefix(2).map(\.output))
+    }
     return model
 }
 #endif
