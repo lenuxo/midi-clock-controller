@@ -138,7 +138,7 @@ struct PlaybackControls: View {
     }
 
     var body: some View {
-        VStack(spacing: 6) {
+        HStack(spacing: 8) {
             Button(action: perform) {
                 Label(title, systemImage: action == .stop ? "stop.fill" : "play.fill")
                     .frame(maxWidth: .infinity, minHeight: 36)
@@ -146,13 +146,90 @@ struct PlaybackControls: View {
             .buttonStyle(InstrumentButtonStyle(palette: palette, emphasized: action != .stop))
             .help(action == .stop ? L("停止这台设备，保留当前位置") : action == .resume ? L("这台设备从停止位置继续播放") : L("这台设备从序列开头播放"))
             if action == .resume {
-                Button(restartTitle, action: restart)
-                    .buttonStyle(.plain)
-                    .font(.system(size: 11))
-                    .foregroundStyle(palette.accent)
-                    .frame(maxWidth: .infinity, minHeight: 28)
+                Button(action: restart) {
+                    Label(restartTitle, systemImage: "backward.end.fill")
+                        .lineLimit(1)
+                        .frame(maxWidth: .infinity, minHeight: 36)
+                }
+                    .buttonStyle(RestartButtonStyle(palette: palette))
                     .help(L("仅这台设备从序列开头播放"))
             }
         }
+    }
+}
+
+/// A quiet, tactile companion to the amber Continue button.
+struct RestartButtonStyle: ButtonStyle {
+    let palette: ClockPalette
+    @Environment(\.isEnabled) private var enabled
+    @State private var hovered = false
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(.system(size: 12, weight: .semibold))
+            .padding(.horizontal, 12)
+            .foregroundStyle(palette.accent)
+            .background(palette.accent.opacity(configuration.isPressed ? 0.18 : hovered ? 0.12 : 0.06),
+                        in: RoundedRectangle(cornerRadius: 4))
+            .overlay(RoundedRectangle(cornerRadius: 4)
+                .stroke(palette.accent.opacity(hovered ? 0.55 : 0.3), lineWidth: 1))
+            .opacity(enabled ? 1 : 0.35)
+            .onHover { hovered = $0 }
+    }
+}
+
+/// Both routing modes stay visible; selecting the current mode is a no-op.
+struct DeviceModeControl: View {
+    let followsMaster: Bool
+    let palette: ClockPalette
+    let deviceName: String
+    let select: (Bool) -> Void
+
+    var body: some View {
+        HStack(spacing: 2) {
+            option(true, title: L("跟随"), description: L("跟随主控"))
+            option(false, title: L("独立"), description: L("独立控制"))
+        }
+        .padding(3)
+        .frame(width: AppLanguage.current == "en" ? 144 : 110)
+        .background(palette.background, in: RoundedRectangle(cornerRadius: 5))
+        .overlay(RoundedRectangle(cornerRadius: 5).stroke(palette.border, lineWidth: 1))
+    }
+
+    private func option(_ following: Bool, title: String, description: String) -> some View {
+        Button {
+            if followsMaster != following { select(following) }
+        } label: {
+            Text(title)
+                .lineLimit(1)
+                .frame(maxWidth: .infinity, minHeight: 24)
+        }
+        .buttonStyle(DeviceModeButtonStyle(palette: palette, selected: followsMaster == following))
+        .accessibilityLabel(deviceName + " · " + description)
+        .accessibilityAddTraits(followsMaster == following ? .isSelected : [])
+        .help(description)
+    }
+}
+
+private struct DeviceModeButtonStyle: ButtonStyle {
+    let palette: ClockPalette
+    let selected: Bool
+    @Environment(\.isEnabled) private var enabled
+    @State private var hovered = false
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(.system(size: 10, weight: selected ? .semibold : .medium))
+            .foregroundStyle(selected ? palette.accent : palette.secondary)
+            .background(selected ? palette.accent.opacity(configuration.isPressed ? 0.22 : 0.12)
+                        : palette.secondary.opacity(hovered || configuration.isPressed ? 0.1 : 0),
+                        in: RoundedRectangle(cornerRadius: 3))
+            .overlay(alignment: .bottom) {
+                if selected {
+                    Capsule().fill(palette.accent).frame(width: 14, height: 2).padding(.bottom, 2)
+                }
+            }
+            .opacity(enabled ? 1 : 0.4)
+            .onHover { hovered = $0 }
     }
 }

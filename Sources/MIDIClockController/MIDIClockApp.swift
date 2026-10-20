@@ -172,7 +172,7 @@ struct ContentView: View {
     }
 
     private var transport: some View {
-        VStack(spacing: 6) {
+        HStack(spacing: 8) {
             Button(action: model.performPlaybackAction) {
                 Label(masterActionTitle, systemImage: model.playbackAction == .stop ? "stop.fill" : "play.fill")
                     .frame(maxWidth: .infinity, minHeight: 40)
@@ -180,11 +180,12 @@ struct ContentView: View {
             .buttonStyle(InstrumentButtonStyle(palette: palette, emphasized: model.playbackAction != .stop))
             .help(model.playbackAction == .stop ? L("停止所有跟随设备") : model.playbackAction == .resume ? L("跟随设备从各自停留位置继续") : L("所有跟随设备从序列开头播放"))
             if model.playbackAction == .resume {
-                Button(L("全部从头开始"), action: model.startMaster)
-                    .buttonStyle(.plain)
-                    .font(.system(size: 11))
-                    .foregroundStyle(palette.accent)
-                    .frame(maxWidth: .infinity, minHeight: 28)
+                Button(action: model.startMaster) {
+                    Label(L("全部从头开始"), systemImage: "backward.end.fill")
+                        .lineLimit(1)
+                        .frame(maxWidth: .infinity, minHeight: 40)
+                }
+                    .buttonStyle(RestartButtonStyle(palette: palette))
                     .help(L("仅跟随设备从序列开头播放，不影响独立设备"))
             }
         }.disabled(model.followers.isEmpty)
@@ -274,11 +275,9 @@ struct DeviceRow: View {
                         .font(.system(size: 11, design: .monospaced)).foregroundStyle(palette.secondary)
                 }
                 Spacer(minLength: 0)
-                Picker(L("控制方式"), selection: Binding(get: { device.followsMaster }, set: setFollowing)) {
-                    Text(L("跟随主控")).tag(true)
-                    Text(L("独立控制")).tag(false)
-                }.labelsHidden().frame(width: AppLanguage.current == "en" ? 126 : 110).disabled(!device.online)
-                    .accessibilityLabel(L("%1$@ 控制方式", String(device.output.name)))
+                DeviceModeControl(followsMaster: device.followsMaster, palette: palette,
+                                  deviceName: device.output.name, select: setFollowing)
+                    .disabled(!device.online)
             }
             if !device.followsMaster {
                 VStack(spacing: 10) {
