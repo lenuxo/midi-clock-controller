@@ -1,3 +1,4 @@
+import AppLocalization
 import AppKit
 import SwiftUI
 
@@ -13,7 +14,7 @@ struct TempoHoldButton: NSViewRepresentable {
     func updateNSView(_ button: HoldButton, context: Context) {
         button.title = symbol
         button.setAccessibilityLabel(label)
-        button.toolTip = "短按微调 0.1 BPM；长按逐渐加速"
+        button.toolTip = L("短按微调 0.1 BPM；长按逐渐加速")
         button.ink = NSColor(palette.digits)
         button.direction = direction
         button.step = step

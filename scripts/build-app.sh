@@ -4,8 +4,15 @@ cd "${0:A:h:h}"
 export CLANG_MODULE_CACHE_PATH="$PWD/.build/clang-cache"
 swift build -c release --disable-sandbox
 bin_dir=$(swift build -c release --show-bin-path --disable-sandbox)
-app="$PWD/dist/MIDI Clock.app"
+app="$PWD/dist/MIDI Clock Controller.app"
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
+cp -R "$bin_dir/MIDIClockController_AppLocalization.bundle" "$app/Contents/Resources/"
+cp -R "$bin_dir/MIDIClockController_MIDIClockController.bundle" "$app/Contents/Resources/"
+for language in zh-Hans en; do
+    mkdir -p "$app/Contents/Resources/$language.lproj"
+    cp "Sources/AppLocalization/Resources/$language.lproj/Localizable.strings" "$app/Contents/Resources/$language.lproj/"
+    cp "Resources/$language.lproj/InfoPlist.strings" "$app/Contents/Resources/$language.lproj/"
+done
 iconset="$PWD/.build/AppIcon.iconset"
 mkdir -p "$iconset"
 for icon_size in 16 32 128 256 512; do
@@ -20,14 +27,16 @@ cat > "$app/Contents/Info.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
-<key>CFBundleName</key><string>MIDI Clock</string>
-<key>CFBundleDisplayName</key><string>MIDI Clock</string>
+<key>CFBundleName</key><string>MIDI Clock Controller</string>
+<key>CFBundleDisplayName</key><string>MIDI Clock Controller</string>
 <key>CFBundleIdentifier</key><string>local.midi-clock-controller</string>
 <key>CFBundleExecutable</key><string>MIDIClockController</string>
 <key>CFBundleIconFile</key><string>AppIcon</string>
 <key>CFBundlePackageType</key><string>APPL</string>
-<key>CFBundleShortVersionString</key><string>0.1.1</string>
-<key>CFBundleVersion</key><string>2</string>
+<key>CFBundleDevelopmentRegion</key><string>zh-Hans</string>
+<key>CFBundleLocalizations</key><array><string>zh-Hans</string><string>en</string></array>
+<key>CFBundleShortVersionString</key><string>0.1.2</string>
+<key>CFBundleVersion</key><string>3</string>
 <key>LSMinimumSystemVersion</key><string>13.0</string>
 <key>NSHighResolutionCapable</key><true/>
 </dict></plist>

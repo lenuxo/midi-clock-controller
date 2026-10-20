@@ -1,3 +1,4 @@
+import AppLocalization
 import AppKit
 import SwiftUI
 import Combine
@@ -71,7 +72,7 @@ final class DeviceControl: ObservableObject, Identifiable {
     @discardableResult
     func commitBPM() -> Bool {
         guard let value = Self.parseBPM(bpmText) else {
-            error = "请输入 20–300 之间的 BPM。"
+            error = L("请输入 20–300 之间的 BPM。")
             return false
         }
         setBPM(value)
@@ -139,7 +140,7 @@ final class DeviceControl: ObservableObject, Identifiable {
             stop()
             canContinue = false
             online = false
-            error = "设备已断开；其他设备继续播放。"
+            error = L("设备已断开；其他设备继续播放。")
             return
         }
         if !online || output.endpoint != replacement.endpoint {
@@ -186,7 +187,7 @@ final class AppModel: ObservableObject {
         ) { [weak self] _ in
             MainActor.assumeIsolated {
                 self?.stopAll()
-                self?.notice = "电脑即将休眠，所有设备已停止。唤醒后请手动开始。"
+                self?.notice = L("电脑即将休眠，所有设备已停止。唤醒后请手动开始。")
             }
         }
     }
@@ -224,7 +225,7 @@ final class AppModel: ObservableObject {
     @discardableResult
     func commitMasterBPM() -> Bool {
         guard let value = DeviceControl.parseBPM(masterBPMText) else {
-            error = "主控 BPM 请输入 20–300 之间的数值。"
+            error = L("主控 BPM 请输入 20–300 之间的数值。")
             return false
         }
         setMasterBPM(value)
@@ -263,7 +264,7 @@ final class AppModel: ObservableObject {
         let deadline = MIDIClockEngine.batchDeadline()
         pendingFollowers.forEach { $0.start(at: deadline) }
         masterRunning = followers.contains(where: \.running)
-        notice = pendingFollowers.isEmpty ? nil : "部分跟随设备未能开始，请查看设备行中的提示。"
+        notice = pendingFollowers.isEmpty ? nil : L("部分跟随设备未能开始，请查看设备行中的提示。")
     }
 
     func continueMaster() {
@@ -273,7 +274,7 @@ final class AppModel: ObservableObject {
         let deadline = MIDIClockEngine.batchDeadline()
         targets.forEach { $0.resume(at: deadline) }
         masterRunning = followers.contains(where: \.running)
-        notice = pendingFollowers.isEmpty ? nil : "部分设备无法继续；请查看设备提示，或停止后从头开始。"
+        notice = pendingFollowers.isEmpty ? nil : L("部分设备无法继续；请查看设备提示，或停止后从头开始。")
     }
 
     func stopMaster() {
@@ -287,7 +288,7 @@ final class AppModel: ObservableObject {
         // Short emergency action, regardless of current selection.
         devices.forEach { $0.stop() }
         masterRunning = false
-        notice = "所有设备已停止。"
+        notice = L("所有设备已停止。")
     }
 
     func shutdown() {

@@ -5,7 +5,7 @@
 - 本项目是 macOS 13+ 原生 MIDI 主时钟，使用 Swift 5.9+、SwiftUI 和 CoreMIDI，无第三方依赖。新增依赖必须说明必要性。
 - 开始修改前阅读 `README.md`、`DESIGN.md` 和相关源文件；当前界面规范以 `DESIGN.md` 为准，`design/retro-precision/` 为历史参考。
 - 保持现有 Swift 风格：四空格缩进、类型名 UpperCamelCase、成员名 lowerCamelCase。避免无关重构和全文件格式化。
-- 用户文档和协作说明使用中文；代码标识符保持英文。行为、构建命令或界面约定改变时同步更新文档。
+- `README.md` 默认使用英文，`README.zh-CN.md` 提供对应的简体中文版本；保持内容简洁且两版同步。其他协作说明使用中文，代码标识符保持英文。行为、构建命令或界面约定改变时同步更新文档。
 
 ## 模块边界与行为约束
 
@@ -28,7 +28,7 @@
 ## 验证
 
 - 测试：`CLANG_MODULE_CACHE_PATH="$PWD/.build/clang-cache" swift test --disable-sandbox`。
-- 发布构建：`zsh scripts/build-app.sh`，输出为 `dist/MIDI Clock.app`，使用本地 ad-hoc 签名。
+- 发布构建：`zsh scripts/build-app.sh`，输出为 `dist/MIDI Clock Controller.app`，使用本地 ad-hoc 签名。
 - 调度和状态逻辑修改应补充有意义的回归测试；纯文档修改检查内容及差异即可。
 - 集成测试仅使用私有虚拟端口，不向物理设备发送消息。需要强制验证 CoreMIDI 时设置 `REQUIRE_MIDI_TESTS=1`；报告跳过测试及原因，不把跳过当作验证成功。
 - UI 修改验证浅色、深色、380 pt 宽度、滚动、键盘操作及错误状态；优先使用无 MIDI 连接的 Debug 预览。

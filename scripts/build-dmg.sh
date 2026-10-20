@@ -2,7 +2,7 @@
 set -euo pipefail
 cd "${0:A:h:h}"
 
-app="$PWD/dist/MIDI Clock.app"
+app="$PWD/dist/MIDI Clock Controller.app"
 [[ -d "$app" ]] || { echo "Run zsh scripts/build-app.sh first." >&2; exit 1; }
 codesign --verify --deep --strict "$app"
 version=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$app/Contents/Info.plist")
@@ -16,10 +16,10 @@ output="$PWD/dist/release"
 mkdir -p "$output"
 stage=$(mktemp -d "$PWD/dist/dmg-stage.XXXXXX")
 trap 'rm -rf "$stage"' EXIT
-ditto "$app" "$stage/MIDI Clock.app"
+ditto "$app" "$stage/MIDI Clock Controller.app"
 ln -s /Applications "$stage/Applications"
-filename="MIDI-Clock-v${version}-macOS-${architecture}.dmg"
-hdiutil create -volname "MIDI Clock $version" -srcfolder "$stage" -ov -format UDZO "$output/$filename"
+filename="MIDI-Clock-Controller-v${version}-macOS-${architecture}.dmg"
+hdiutil create -volname "MIDI Clock Controller $version" -srcfolder "$stage" -ov -format UDZO "$output/$filename"
 hdiutil verify "$output/$filename"
 (cd "$output" && shasum -a 256 "$filename" > "$filename.sha256")
 echo "Built: $output/$filename"

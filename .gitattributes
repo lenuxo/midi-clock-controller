@@ -4,3 +4,6 @@
 *.md text eol=lf
 *.json text eol=lf
 *.png binary
+
+# Preserve the bundled upstream font license without whitespace lint changes.
+Sources/MIDIClockController/Resources/Fonts/DSEG-LICENSE.txt whitespace=-blank-at-eol

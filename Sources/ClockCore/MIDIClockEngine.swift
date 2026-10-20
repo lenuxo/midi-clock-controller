@@ -1,3 +1,4 @@
+import AppLocalization
 import Foundation
 import CoreMIDI
 import CoreAudio
@@ -14,7 +15,7 @@ public struct MIDIOutput: Identifiable, Equatable {
 public struct MIDIError: LocalizedError {
     public let operation: String
     public let status: OSStatus
-    public var errorDescription: String? { "\(operation)失败（CoreMIDI \(status)）。" }
+    public var errorDescription: String? { L("%1$@失败（CoreMIDI %2$@）。", String(operation), String(status)) }
 }
 
 /// All transport state and output writes are confined to one serial queue.
@@ -59,9 +60,9 @@ public final class MIDIClockEngine {
         queue.setSpecific(key: queueKey, value: true)
         try check(MIDIClientCreateWithBlock("MIDI Clock Controller" as CFString, &client) { [weak self] _ in
             DispatchQueue.main.async { self?.onSetupChange?() }
-        }, "初始化 MIDI")
+        }, L("初始化 MIDI"))
         do {
-            try check(MIDIOutputPortCreate(client, "Clock output" as CFString, &port), "创建 MIDI 输出")
+            try check(MIDIOutputPortCreate(client, "Clock output" as CFString, &port), L("创建 MIDI 输出"))
         } catch {
             MIDIClientDispose(client)
             client = 0
@@ -86,7 +87,7 @@ public final class MIDIClockEngine {
             var name: Unmanaged<CFString>?
             MIDIObjectGetStringProperty(endpoint, kMIDIPropertyDisplayName, &name)
             return MIDIOutput(id: uniqueID, endpoint: endpoint,
-                              name: name?.takeRetainedValue() as String? ?? "MIDI 输出 \(uniqueID)")
+                              name: name?.takeRetainedValue() as String? ?? L("MIDI 输出 %1$@", String(uniqueID)))
         }
     }
 
@@ -108,7 +109,7 @@ public final class MIDIClockEngine {
             drainTransport()
             var seen = Set<MIDIEndpointRef>()
             let unique = outputs.filter { $0.endpoint != 0 && seen.insert($0.endpoint).inserted }
-            guard !unique.isEmpty else { throw MIDIError(operation: "请选择至少一个 MIDI 输出；启动", status: -50) }
+            guard !unique.isEmpty else { throw MIDIError(operation: L("请选择至少一个 MIDI 输出；启动"), status: -50) }
             generation &+= 1
             let run = generation
             destinations = unique
@@ -123,7 +124,7 @@ public final class MIDIClockEngine {
             }
             guard automaticTimer else { return }
             activity = ProcessInfo.processInfo.beginActivity(options: [.userInitiated, .idleSystemSleepDisabled],
-                                                              reason: "正在发送 MIDI 同步时钟")
+                                                              reason: L("正在发送 MIDI 同步时钟"))
             let source = DispatchSource.makeTimerSource(flags: .strict, queue: queue)
             source.schedule(deadline: .now(), repeating: .milliseconds(2), leeway: .microseconds(200))
             source.setEventHandler { [weak self] in
@@ -203,7 +204,7 @@ public final class MIDIClockEngine {
         let time = now()
         // A stalled host must not burst old clocks into a musical device.
         if current.next < time - min(0.050, current.interval) {
-            fail("时钟调度中断，已停止。请重新开始。")
+            fail(L("时钟调度中断，已停止。请重新开始。"))
             return
         }
         // If a deadline is slightly late, shift the remaining grid by the same amount.
@@ -242,7 +243,7 @@ public final class MIDIClockEngine {
             catch {
                 if firstError == nil {
                     firstError = NSError(domain: "MIDIClock", code: 1, userInfo: [
-                        NSLocalizedDescriptionKey: "\(output.name)：\(error.localizedDescription) 已停止当前时钟输出，请检查连接。"
+                        NSLocalizedDescriptionKey: L("%1$@：%2$@ 已停止当前时钟输出，请检查连接。", String(output.name), String(error.localizedDescription))
                     ])
                 }
             }
@@ -262,7 +263,7 @@ public final class MIDIClockEngine {
                                  UInt64(seconds * frequency), 1, &word)
             return MIDISendEventList(port, destination, list)
         }
-        try check(result, "发送 MIDI")
+        try check(result, L("发送 MIDI"))
     }
 
     private func check(_ status: OSStatus, _ operation: String) throws {

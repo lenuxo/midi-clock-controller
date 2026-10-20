@@ -1,40 +1,21 @@
+import AppLocalization
 import SwiftUI
 
-/// Vector display only. A native text field handles selection, caret, input and VoiceOver.
+/// The display and native editor use the same bundled seven-segment font.
 struct SegmentDigits: View {
     let text: String
     let color: Color
+    let size: CGFloat
+
     var body: some View {
-        Canvas { context, size in
-            let glyphs = Array(text)
-            let units = glyphs.reduce(0.0) { $0 + ($1 == "." ? 0.28 : 1) }
-            let w = min(size.height * 0.58, size.width / max(1, units))
-            let h = size.height
-            let t = h * 0.075
-            let masks = [0x3F, 0x06, 0x5B, 0x4F, 0x66, 0x6D, 0x7D, 0x07, 0x7F, 0x6F]
-            var x = size.width - units * w
-            for character in glyphs {
-                if character == "." {
-                    context.fill(Path(ellipseIn: CGRect(x: x + t, y: h - t * 1.4, width: t, height: t)), with: .color(color))
-                    x += w * 0.28
-                    continue
-                }
-                let mask = character.wholeNumberValue.map { masks[$0] } ?? 0
-                let rects = [
-                    CGRect(x: x+t, y: 0, width: w-3*t, height: t),
-                    CGRect(x: x+w-2*t, y: t, width: t, height: h/2-1.5*t),
-                    CGRect(x: x+w-2*t, y: h/2+t/2, width: t, height: h/2-1.5*t),
-                    CGRect(x: x+t, y: h-t, width: w-3*t, height: t),
-                    CGRect(x: x, y: h/2+t/2, width: t, height: h/2-1.5*t),
-                    CGRect(x: x, y: t, width: t, height: h/2-1.5*t),
-                    CGRect(x: x+t, y: h/2-t/2, width: w-3*t, height: t)
-                ]
-                for (index, rect) in rects.enumerated() {
-                    context.fill(Path(roundedRect: rect, cornerRadius: t/3), with: .color(color.opacity(mask & (1 << index) != 0 ? 1 : 0.055)))
-                }
-                x += w
-            }
-        }.accessibilityHidden(true)
+        ZStack(alignment: .trailing) {
+            Text(String(text.map { $0.isNumber ? "8" : $0 }))
+                .foregroundStyle(color.opacity(0.055))
+            Text(text).foregroundStyle(color)
+        }
+        .font(SegmentFont.font(size: size))
+        .fixedSize()
+        .accessibilityHidden(true)
     }
 }
 
@@ -56,36 +37,37 @@ struct TempoControl: View {
                 if editing {
                     TextField(label, text: $text)
                         .textFieldStyle(.plain)
-                        .font(.system(size: small ? 32 : 46, weight: .medium, design: .monospaced))
+                        .font(SegmentFont.font(size: small ? 38 : 56))
                         .multilineTextAlignment(.trailing)
                         .foregroundStyle(palette.digits)
+                        .background(TempoSelectionAppearance(background: palette.displaySelection, foreground: palette.digits, focused: focused))
                         .focused($focused)
                         .onAppear { DispatchQueue.main.async { focused = true } }
                         .onSubmit { if commit() { focused = false; editing = false } }
                         .accessibilityLabel(label)
                 } else {
                     Button { originalText = text; editing = true } label: {
-                        SegmentDigits(text: text, color: palette.digits)
-                            .frame(width: small ? 118 : 154, height: small ? 38 : 56)
+                        SegmentDigits(text: text, color: palette.digits, size: small ? 38 : 56)
+                            .frame(width: small ? 130 : 188, height: small ? 38 : 56)
                             .contentShape(Rectangle())
                     }.buttonStyle(.plain)
-                        .accessibilityLabel("编辑" + label)
+                        .accessibilityLabel(L("编辑") + label)
                         .accessibilityValue(text + " BPM")
                 }
-            }.frame(width: small ? 118 : 154, height: small ? 38 : 56)
+            }.frame(width: small ? 130 : 188, height: small ? 38 : 56)
                 .background(OutsideClickObserver(active: editing, onOutsideClick: finishEditing,
                                                   handlesKeys: focused, onCancel: cancelEditing, onStep: stepDraft))
             Text("BPM").font(.system(size: 10, weight: .bold, design: .monospaced)).foregroundStyle(palette.digits).padding(.bottom, 2)
         }
             .frame(maxWidth: expanded ? .infinity : nil)
             .padding(12)
-            .help("回车或点击外部确认 · Esc 取消 · ↑↓ 微调 0.1 · 20–300 BPM")
-            Rectangle().fill(palette.border).frame(width: 1)
+            .help(L("回车或点击外部确认 · Esc 取消 · ↑↓ 微调 0.1 · 20–300 BPM"))
+            Rectangle().fill(palette.displayDivider).frame(width: 1)
             VStack(spacing: 0) {
-                TempoHoldButton(symbol: "+", label: "\(label)增加 BPM", palette: palette, direction: 1, step: adjust)
+                TempoHoldButton(symbol: "+", label: L("%1$@ 增加 BPM", String(label)), palette: palette, direction: 1, step: adjust)
                     .frame(maxHeight: .infinity)
-                Rectangle().fill(palette.border).frame(height: 1)
-                TempoHoldButton(symbol: "−", label: "\(label)减少 BPM", palette: palette, direction: -1, step: adjust)
+                Rectangle().fill(palette.displayDivider).frame(height: 1)
+                TempoHoldButton(symbol: "−", label: L("%1$@ 减少 BPM", String(label)), palette: palette, direction: -1, step: adjust)
                     .frame(maxHeight: .infinity)
             }.frame(width: 38)
         }
@@ -93,7 +75,7 @@ struct TempoControl: View {
         .fixedSize(horizontal: !expanded, vertical: false)
         .background(palette.display)
         .clipShape(RoundedRectangle(cornerRadius: 4))
-        .overlay(RoundedRectangle(cornerRadius: 4).stroke(focused ? palette.digits : palette.border, lineWidth: focused ? 2 : 1))
+        .overlay(RoundedRectangle(cornerRadius: 4).stroke(focused ? palette.digits.opacity(0.75) : palette.displayDivider, lineWidth: 1))
         .onChange(of: focused) { if !$0 { finishEditing() } }
     }
     private func cancelEditing() {
@@ -143,44 +125,33 @@ struct InstrumentButtonStyle: ButtonStyle {
 struct PlaybackControls: View {
     let action: PlaybackAction
     let palette: ClockPalette
-    var detail: String? = nil
-    var status: String? = nil
-    var restartTitle = "从头开始"
+    var restartTitle = L("从头开始")
     let perform: () -> Void
     let restart: () -> Void
 
     private var title: String {
         switch action {
-        case .start: return "开始播放"
-        case .resume: return "继续播放"
-        case .stop: return "停止"
+        case .start: return L("开始播放")
+        case .resume: return L("继续播放")
+        case .stop: return L("停止")
         }
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 12) {
-                Button(action: perform) {
-                    Label(title, systemImage: action == .stop ? "stop.fill" : "play.fill")
-                        .frame(width: 96, height: 36)
-                }
-                .buttonStyle(InstrumentButtonStyle(palette: palette, emphasized: action != .stop))
-                .help(action == .stop ? "停止播放，保留当前位置" : action == .resume ? "从各自停留位置继续播放" : "从序列开头播放")
-                Spacer(minLength: 0)
-                VStack(alignment: .trailing, spacing: 4) {
-                    Label(status ?? (action == .stop ? "播放中" : action == .resume ? "已停止" : "就绪"),
-                          systemImage: action == .stop ? "play.fill" : "stop.fill")
-                        .foregroundStyle(action == .stop ? palette.playing : palette.secondary)
-                    if let detail { Text(detail).foregroundStyle(palette.secondary) }
-                }.font(.system(size: 11))
+        VStack(spacing: 6) {
+            Button(action: perform) {
+                Label(title, systemImage: action == .stop ? "stop.fill" : "play.fill")
+                    .frame(maxWidth: .infinity, minHeight: 36)
             }
+            .buttonStyle(InstrumentButtonStyle(palette: palette, emphasized: action != .stop))
+            .help(action == .stop ? L("停止这台设备，保留当前位置") : action == .resume ? L("这台设备从停止位置继续播放") : L("这台设备从序列开头播放"))
             if action == .resume {
                 Button(restartTitle, action: restart)
                     .buttonStyle(.plain)
                     .font(.system(size: 11))
                     .foregroundStyle(palette.accent)
-                    .padding(.vertical, 4)
-                    .help("放弃停止位置，从序列开头播放；主控只影响跟随设备")
+                    .frame(maxWidth: .infinity, minHeight: 28)
+                    .help(L("仅这台设备从序列开头播放"))
             }
         }
     }

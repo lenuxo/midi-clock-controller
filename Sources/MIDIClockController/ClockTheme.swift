@@ -6,6 +6,8 @@ struct ClockPalette {
     var panel: Color { Color(hex: dark ? 0x1B2023 : 0xFFFFFF) }
     var display: Color { Color(hex: 0x090C0D) }
     var digits: Color { Color(hex: 0xFFC15A) }
+    var displayDivider: Color { Color(hex: 0x403729) }
+    var displaySelection: Color { Color(hex: 0x594124) }
     var accent: Color { dark ? digits : Color(hex: 0x8A4B00) }
     var border: Color { Color(hex: dark ? 0x394247 : 0xC9D1CC) }
     var text: Color { Color(hex: dark ? 0xEFF2ED : 0x1B2520) }
