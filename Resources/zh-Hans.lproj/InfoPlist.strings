@@ -1,2 +1,4 @@
 "CFBundleName" = "MIDI时钟控制器";
 "CFBundleDisplayName" = "MIDI时钟控制器";
+
+"NSLocalNetworkUsageDescription" = "发现局域网内的 Ableton Link 参与者，共享音乐速度、拍点及可选启停。";

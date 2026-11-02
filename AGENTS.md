@@ -2,7 +2,7 @@
 
 ## 项目约定
 
-- 本项目是 macOS 13+ 原生 MIDI 主时钟，使用 Swift 5.9+、SwiftUI 和 CoreMIDI，无第三方依赖。新增依赖必须说明必要性。
+- 本项目是 macOS 13+ 原生 MIDI 主时钟，使用 Swift 5.9+、SwiftUI 和 CoreMIDI；Ableton Link 通过固定版本的官方 C++17 SDK 与 Asio 接入，来源及授权见 `Sources/CLink/vendor/README.md`。新增依赖必须说明必要性。
 - 开始修改前阅读 `README.md`、`DESIGN.md` 和相关源文件；当前界面规范以 `DESIGN.md` 为准，`design/retro-precision/` 为历史参考。
 - 保持现有 Swift 风格：四空格缩进、类型名 UpperCamelCase、成员名 lowerCamelCase。避免无关重构和全文件格式化。
 - `README.md` 默认使用英文，`README.zh-CN.md` 提供对应的简体中文版本；保持内容简洁且两版同步。其他协作说明使用中文，代码标识符保持英文。行为、构建命令或界面约定改变时同步更新文档。

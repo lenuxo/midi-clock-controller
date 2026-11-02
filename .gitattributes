@@ -7,3 +7,7 @@
 
 # Preserve the bundled upstream font license without whitespace lint changes.
 Sources/MIDIClockController/Resources/Fonts/DSEG-LICENSE.txt whitespace=-blank-at-eol
+
+# Preserve upstream source and license whitespace verbatim.
+Sources/CLink/vendor/** -whitespace
+LICENSE -whitespace

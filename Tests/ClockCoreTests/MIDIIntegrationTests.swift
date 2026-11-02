@@ -1,6 +1,7 @@
 import XCTest
 import CoreMIDI
 import CoreAudio
+import LinkBridge
 @testable import ClockCore
 
 /// Uses a private virtual destination; never sends messages to physical hardware.
@@ -208,5 +209,64 @@ private final class Capture: @unchecked Sendable {
     func snapshot() -> [Event] {
         lock.lock(); defer { lock.unlock() }
         return events
+    }
+}
+
+
+extension MIDIIntegrationTests {
+    func testOfficialLinkTimelineDrivesPrivateMIDIDestination() throws {
+        var client: MIDIClientRef = 0
+        var endpoint: MIDIEndpointRef = 0
+        let status = MIDIClientCreateWithBlock("Private Link clock test" as CFString, &client, nil)
+        guard status == noErr else {
+            if ProcessInfo.processInfo.environment["REQUIRE_MIDI_TESTS"] == "1" { XCTFail("CoreMIDI unavailable: \(status)"); return }
+            throw XCTSkip("CoreMIDI unavailable: \(status)")
+        }
+        defer { MIDIClientDispose(client) }
+        let capture = Capture()
+        XCTAssertEqual(MIDIDestinationCreateWithProtocol(client, "Private Link receiver" as CFString, ._1_0, &endpoint) { events, _ in
+            var packet = UnsafeRawPointer(events).advanced(by: MemoryLayout<MIDIEventList>.offset(of: \.packet)!)
+                .assumingMemoryBound(to: MIDIEventPacket.self)
+            for _ in 0..<events.pointee.numPackets {
+                withUnsafeBytes(of: packet.pointee.words) { bytes in
+                    let words = bytes.bindMemory(to: UInt32.self)
+                    for i in 0..<Int(packet.pointee.wordCount) {
+                        capture.append(status: UInt8((words[i] >> 16) & 0xFF), time: packet.pointee.timeStamp)
+                    }
+                }
+                packet = UnsafePointer(MIDIEventPacketNext(packet))
+            }
+        }, noErr)
+        defer { MIDIEndpointDispose(endpoint) }
+        let session = try XCTUnwrap(LinkSession(bpm: 120)) // No network or physical MIDI connections.
+        let engine = try MIDIClockEngine()
+        engine.setBeatClock(session)
+        let output = MIDIOutput(id: 1, endpoint: endpoint, name: "Private Link receiver")
+        try engine.start(outputs: [output], bpm: 120)
+        Thread.sleep(forTimeInterval: 0.8)
+        session.setTempo(180, at: LinkSession.hostTime() + 0.01)
+        Thread.sleep(forTimeInterval: 0.5)
+        try engine.stop()
+        Thread.sleep(forTimeInterval: 0.03)
+        let first = capture.snapshot()
+        XCTAssertEqual(first.first?.status, 0xFA)
+        XCTAssertEqual(first.last?.status, 0xFC)
+        let ticks = first.filter { $0.status == 0xF8 }
+        XCTAssertGreaterThan(ticks.count, 25)
+        for tick in ticks.suffix(15) {
+            let time = Double(tick.time) / AudioGetHostClockFrequency()
+            let beat = session.timeline(at: time).beat * 24
+            XCTAssertEqual(beat, beat.rounded(), accuracy: 0.001)
+        }
+        let stoppedCount = first.count
+        Thread.sleep(forTimeInterval: 0.04)
+        XCTAssertEqual(capture.snapshot().count, stoppedCount)
+        try engine.resume(outputs: [output], bpm: 180)
+        Thread.sleep(forTimeInterval: 0.5)
+        try engine.stop()
+        Thread.sleep(forTimeInterval: 0.03)
+        let later = capture.snapshot()
+        XCTAssertEqual(later[stoppedCount].status, 0xFB)
+        for (a, b) in zip(later, later.dropFirst()) { XCTAssertLessThan(a.time, b.time) }
     }
 }

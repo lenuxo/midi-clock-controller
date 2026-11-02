@@ -13,6 +13,13 @@ for language in zh-Hans en; do
     cp "Sources/AppLocalization/Resources/$language.lproj/Localizable.strings" "$app/Contents/Resources/$language.lproj/"
     cp "Resources/$language.lproj/InfoPlist.strings" "$app/Contents/Resources/$language.lproj/"
 done
+mkdir -p "$app/Contents/Resources/ThirdPartyLicenses"
+cp LICENSE "$app/Contents/Resources/ThirdPartyLicenses/MIDI-Clock-Controller-LICENSE.txt"
+cp COPYING.md "$app/Contents/Resources/ThirdPartyLicenses/MIDI-Clock-Controller-COPYING.md"
+cp Sources/CLink/vendor/link/LICENSE.md "$app/Contents/Resources/ThirdPartyLicenses/Ableton-Link-LICENSE.md"
+cp Sources/CLink/vendor/link/GNU-GPL-v2.0.md "$app/Contents/Resources/ThirdPartyLicenses/GNU-GPL-v2.0.md"
+cp Sources/CLink/vendor/asio/LICENSE_1_0.txt "$app/Contents/Resources/ThirdPartyLicenses/Asio-LICENSE.txt"
+cp Sources/MIDIClockController/Resources/Fonts/DSEG-LICENSE.txt "$app/Contents/Resources/ThirdPartyLicenses/DSEG-LICENSE.txt"
 iconset="$PWD/.build/AppIcon.iconset"
 mkdir -p "$iconset"
 for icon_size in 16 32 128 256 512; do
@@ -35,9 +42,10 @@ cat > "$app/Contents/Info.plist" <<'PLIST'
 <key>CFBundlePackageType</key><string>APPL</string>
 <key>CFBundleDevelopmentRegion</key><string>zh-Hans</string>
 <key>CFBundleLocalizations</key><array><string>zh-Hans</string><string>en</string></array>
-<key>CFBundleShortVersionString</key><string>0.1.4</string>
-<key>CFBundleVersion</key><string>5</string>
+<key>CFBundleShortVersionString</key><string>0.1.5</string>
+<key>CFBundleVersion</key><string>6</string>
 <key>LSMinimumSystemVersion</key><string>13.0</string>
+<key>NSLocalNetworkUsageDescription</key><string>Discover Ableton Link peers and share musical tempo and beat timing on your local network.</string>
 <key>NSHighResolutionCapable</key><true/>
 </dict></plist>
 PLIST

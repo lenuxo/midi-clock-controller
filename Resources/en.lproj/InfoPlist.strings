@@ -1,2 +1,4 @@
 "CFBundleName" = "MIDI Clock Controller";
 "CFBundleDisplayName" = "MIDI Clock Controller";
+
+"NSLocalNetworkUsageDescription" = "Discover Ableton Link peers and share musical tempo and beat timing on your local network.";

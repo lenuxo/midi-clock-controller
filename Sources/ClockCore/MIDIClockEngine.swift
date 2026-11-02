@@ -28,6 +28,12 @@ public final class MIDIClockEngine {
     private var timer: DispatchSourceTimer?
     private var destinations: [MIDIOutput] = []
     private var schedule: ClockSchedule?
+    private var beatClock: BeatClock?
+    private var launchQuantum = 1.0
+    private var externalBeatScale = 1.0
+    private var nextExternalBeat: Double?
+    private var pendingExternalTransport: UInt8?
+    private var lastExternalClock: Double?
     private var pendingTempo: (bpm: Double, time: Double)?
     private var lastSubmitted: Double = 0
     private var transportBoundary: Double = 0
@@ -116,7 +122,16 @@ public final class MIDIClockEngine {
             let start = max(now() + lookAhead, transportBoundary + 0.001, scheduledAt ?? 0)
             lastSubmitted = start
             schedule = ClockSchedule(bpm: bpm, start: start + 0.001)
-            do { try send(status, at: start) }
+            if let beatClock {
+                let timeline = beatClock.timeline(at: now())
+                guard timeline.valid else { schedule = nil; throw MIDIError(operation: L("Link 时间线不可用"), status: -1) }
+                externalBeatScale = timeline.beatScale
+                nextExternalBeat = ceil(timeline.beat(at: start + 0.001) / launchQuantum) * launchQuantum
+                pendingExternalTransport = status
+                lastExternalClock = nil
+                lastSubmitted = 0 // Nothing has been submitted while waiting for the boundary.
+            }
+            do { if beatClock == nil { try send(status, at: start) } }
             catch {
                 // Some outputs may have accepted Start or Continue. Stop all before reporting failure.
                 try? stopOnQueue()
@@ -137,11 +152,39 @@ public final class MIDIClockEngine {
     }
 
     public func setBPM(_ bpm: Double) {
-        serialized { pendingTempo = nil; schedule?.setBPM(bpm) }
+        serialized { pendingTempo = nil; if beatClock == nil { schedule?.setBPM(bpm) } }
     }
 
+    public func setBeatClock(_ clock: BeatClock?, quantum: Double = 1) {
+        serialized {
+            // AppModel only changes the master source while followers are stopped.
+            // A running device may detach without restarting or losing its next tick.
+            if clock == nil, let source = beatClock, schedule != nil, let next = nextExternalBeat {
+                let snapshot = source.timeline(at: now())
+                if snapshot.valid {
+                    schedule = ClockSchedule(bpm: snapshot.bpm, start: max(now(), snapshot.time(at: next), lastSubmitted + snapshot.secondsPerBeat / 24))
+                }
+                // If detached during a quantized launch, retain the armed Start/Continue
+                // and send it immediately before the first local tick in pump().
+            }
+            beatClock = clock
+            launchQuantum = quantum == 4 ? 4 : 1
+            if clock != nil, schedule != nil, nextExternalBeat == nil, let snapshot = clock?.timeline(at: now()), snapshot.valid {
+                externalBeatScale = snapshot.beatScale
+                let spacing = max(schedule?.interval ?? 0, snapshot.secondsPerBeat / 24)
+                nextExternalBeat = ceil(snapshot.beat(at: max(now() + lookAhead, lastSubmitted + spacing)) * 24) / 24
+            }
+            if clock != nil, schedule != nil, nextExternalBeat == nil {
+                fail(L("Link 时间线不可用"))
+            }
+            if clock == nil { nextExternalBeat = nil; lastExternalClock = nil }
+        }
+    }
+
+    public var waitingForBeat: Bool { serialized { pendingExternalTransport != nil } }
+
     public func scheduleBPM(_ bpm: Double, at deadline: Double) {
-        serialized { if schedule != nil { pendingTempo = (ClockSchedule.clamp(bpm), deadline) } }
+        serialized { if schedule != nil, beatClock == nil { pendingTempo = (ClockSchedule.clamp(bpm), deadline) } }
     }
 
     public func drainPendingStop() { serialized { drainTransport() } }
@@ -175,8 +218,13 @@ public final class MIDIClockEngine {
         timer = nil
         schedule = nil
         pendingTempo = nil
+        nextExternalBeat = nil
+        lastExternalClock = nil
+        let wasArmed = pendingExternalTransport != nil
+        pendingExternalTransport = nil
         if let activity { ProcessInfo.processInfo.endActivity(activity) }
         activity = nil
+        if wasArmed { destinations = []; return }
         transportBoundary = max(max(now(), lastSubmitted) + 0.001, scheduledAt ?? 0)
         defer { if drain { drainTransport() }; destinations = [] }
         try send(0xFC, at: transportBoundary)
@@ -200,8 +248,20 @@ public final class MIDIClockEngine {
     }
 
     private func pump() {
+        if let beatClock, schedule != nil {
+            pumpExternal(beatClock)
+            return
+        }
         guard var current = schedule else { return }
         let time = now()
+        if let status = pendingExternalTransport {
+            // Detaching an armed Link device uses a local, bounded launch instead.
+            current = ClockSchedule(bpm: current.bpm, start: time + 0.002)
+            do { try send(status, at: time + 0.001) }
+            catch { fail(error.localizedDescription); return }
+            lastSubmitted = time + 0.001
+            pendingExternalTransport = nil
+        }
         // A stalled host must not burst old clocks into a musical device.
         if current.next < time - min(0.050, current.interval) {
             fail(L("时钟调度中断，已停止。请重新开始。"))
@@ -222,6 +282,58 @@ public final class MIDIClockEngine {
                 try send(0xF8, at: deadline)
             }
             schedule = current
+        } catch { fail(error.localizedDescription) }
+    }
+
+    private func pumpExternal(_ source: BeatClock) {
+        guard var beat = nextExternalBeat else { return }
+        let time = now()
+        let timeline = source.timeline(at: time)
+        guard timeline.valid else { fail(L("Link 时间线不可用")); return }
+        let interval = timeline.secondsPerBeat / 24
+        if timeline.beatScale != externalBeatScale {
+            let quantum = pendingExternalTransport == nil ? 1.0 / 24 : launchQuantum
+            beat = ceil(timeline.beat(at: max(time + lookAhead, lastSubmitted + interval)) / quantum) * quantum
+            externalBeatScale = timeline.beatScale
+        }
+        var deadline = timeline.time(at: beat)
+        if pendingExternalTransport == nil, let lastExternalClock,
+           deadline - lastExternalClock > interval * 2.5 + lookAhead {
+            fail(L("Link 拍点发生跳变，已停止。请重新开始。")); return
+        }
+        do {
+            if let status = pendingExternalTransport {
+                if deadline < time + 0.001 {
+                    // A tempo/phase change can move an armed boundary into the past.
+                    // Re-arm at a future boundary; never catch up old transport messages.
+                    beat = ceil(timeline.beat(at: time + lookAhead) / launchQuantum) * launchQuantum
+                    deadline = timeline.time(at: beat)
+                }
+                nextExternalBeat = beat
+                guard deadline - 0.001 <= time + lookAhead else { return }
+                // Mark transport submitted before fan-out so partial failure still sends Stop.
+                pendingExternalTransport = nil
+                lastSubmitted = deadline - 0.001
+                try send(status, at: deadline - 0.001)
+            } else if deadline < time - min(0.050, interval) {
+                fail(L("时钟调度中断，已停止。请重新开始。")); return
+            }
+            // Missing a slightly late pulse is preferable to a compressed catch-up burst.
+            if deadline < time { beat += 1.0 / 24; deadline = timeline.time(at: beat) }
+            var count = 0
+            while deadline <= time + lookAhead {
+                guard count < 8, deadline >= time,
+                      lastExternalClock.map({ deadline - $0 >= interval * 0.5 }) ?? true else {
+                    fail(L("Link 拍点发生跳变，已停止。请重新开始。")); return
+                }
+                lastSubmitted = deadline
+                try send(0xF8, at: deadline)
+                lastExternalClock = deadline
+                beat += 1.0 / 24
+                deadline = timeline.time(at: beat)
+                count += 1
+            }
+            nextExternalBeat = beat
         } catch { fail(error.localizedDescription) }
     }
 

@@ -18,6 +18,14 @@ enum AppAbout {
                 .paragraphStyle: paragraph
             ]
         ))
+        credits.append(NSAttributedString(string: "\n\nAbleton Link 4.1.1 · Asio · DSEG7 Classic\n",
+                                         attributes: [.font: NSFont.systemFont(ofSize: 10), .paragraphStyle: paragraph]))
+        let bundledLicenses = Bundle.main.resourceURL?.appendingPathComponent("ThirdPartyLicenses", isDirectory: true)
+        let licenseURL = bundledLicenses.flatMap { FileManager.default.fileExists(atPath: $0.path) ? $0 : nil }
+            ?? URL(string: "https://github.com/Ableton/link/blob/Link-4.1.1/LICENSE.md")!
+        credits.append(NSAttributedString(string: L("查看第三方授权"), attributes: [
+            .link: licenseURL, .font: NSFont.systemFont(ofSize: 10), .paragraphStyle: paragraph
+        ]))
         NSApp.orderFrontStandardAboutPanel(options: [.applicationName: L("app.name"), .credits: credits])
     }
 }
@@ -74,7 +82,7 @@ struct AppMenus: Commands {
                 model.performPlaybackAction()
             }
             .keyboardShortcut(.return, modifiers: .command)
-            .disabled(showingHelp || model.followers.isEmpty || model.playbackAction == .stop)
+            .disabled(showingHelp || (model.followers.isEmpty && !model.linkEnabled) || model.playbackAction == .stop)
             Button(L("停止主控"), action: model.stopMaster)
                 .keyboardShortcut(".", modifiers: .command)
                 .disabled(model.playbackAction != .stop)
@@ -84,7 +92,7 @@ struct AppMenus: Commands {
             Divider()
             Button(L("全部停止"), action: model.stopAll)
                 .keyboardShortcut(".", modifiers: [.command, .shift])
-                .disabled(model.playingCount == 0)
+                .disabled(model.playingCount == 0 && !model.masterRunning)
             Divider()
             Button(L("加入等待中的跟随设备"), action: model.startMaster)
                 .disabled(showingHelp || model.playbackAction != .stop || model.pendingFollowers.isEmpty)
@@ -109,9 +117,13 @@ struct QuickHelpView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
                     tip(L("连接设备"), L("通过 USB 连接，将设备时钟设为 External，并开启接收 Start / Continue / Stop。"))
-                    tip(L("播放与同步"), L("主控只影响跟随设备。停止后可继续播放，或选择全部从头开始。继续保留各设备自己的位置，不保证乐曲位置一致。"))
-                    tip(L("独立控制"), L("在设备行切换为独立，单独调整速度和播放。顶部「全部停止」会停止所有设备。断线重连后需手动开始。"))
+                    tip(L("播放与同步"), L("主控控制跟随 MIDI 设备；独立设备自行启停。停止后可继续或从头开始。继续保留设备自己的位置，不保证乐曲位置一致。"))
+                    tip("Ableton Link", L("停止主控后点击 Link，共享速度和拍点。主控改速会影响 Link 会话。参与者数量不是 MIDI 设备数量；没有其他参与者时仍可运行。"))
+                    tip(L("Link 启停联动"), L("Link 设置中可开启「同步开始与停止」，默认关闭。双方开启后交换新的启停命令，加入会话不会自动播放。开始可对齐下一拍或每 4 拍，等待中可取消。"))
+                    tip(L("全部停止"), L("停止本机所有 MIDI 设备、取消待开始任务并关闭 Link 启停联动；其他 Link 参与者继续运行。"))
+                    tip(L("独立控制"), L("在设备行切换为独立，可单独调速和启停，不受 Link 影响。断线重连后需手动开始；断开超过 30 秒则移出列表。"))
                     tip(L("调整 BPM"), L("点击数字编辑，Enter 确认、Esc 取消；↑↓ 微调。非编辑时 ↑↓ 调整主控速度，长按方向键或加减键会逐渐加速。"))
+                    tip(L("速度折算"), L("Link 速度超出 20–300 BPM 时，MIDI 按显示的倍速或半速比例输出，数位屏显示 MIDI 速度。"))
                     VStack(alignment: .leading, spacing: 6) {
                         Text(L("快捷键")).fontWeight(.semibold)
                         shortcut(L("开始 / 继续主控"), "⌘Return")
@@ -128,7 +140,7 @@ struct QuickHelpView: View {
             HStack {
                 Button(L("全部停止"), action: model.stopAll)
                     .keyboardShortcut(".", modifiers: [.command, .shift])
-                    .disabled(model.playingCount == 0)
+                    .disabled(model.playingCount == 0 && !model.masterRunning)
                 Spacer()
                 Button(L("完成"), action: close).keyboardShortcut(.cancelAction)
             }

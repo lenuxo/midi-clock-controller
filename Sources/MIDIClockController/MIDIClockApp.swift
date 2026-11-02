@@ -53,7 +53,7 @@ struct ContentView: View {
                     VStack(spacing: 0) {
                         masterPanel
                         HStack {
-                            Text(L("设备")).font(.headline)
+                            Text(L("MIDI 设备")).font(.headline)
                             if !model.devices.isEmpty {
                                 Text(L("%1$@ 在线 · %2$@ 播放中", String(model.onlineDevices.count), String(model.playingCount)))
                                     .font(.caption).foregroundStyle(palette.secondary)
@@ -78,7 +78,7 @@ struct ContentView: View {
                         } else {
                             LazyVStack(spacing: 6) {
                                 ForEach(Array(model.devices.enumerated()), id: \.element.id) { index, device in
-                                    DeviceRow(device: device, number: index + 1, masterRunning: model.masterRunning, palette: palette,
+                                    DeviceRow(device: device, number: index + 1, masterRunning: model.masterRunning, linkEnabled: model.linkEnabled, palette: palette,
                                               setFollowing: { model.setFollowing(device, $0) })
                                 }
                             }.padding(.horizontal, 12)
@@ -145,15 +145,17 @@ struct ContentView: View {
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .disabled(model.playingCount == 0)
-                .help(L("停止所有设备，包括独立设备 · ⇧⌘."))
+                .disabled(model.playingCount == 0 && !model.masterRunning)
+                .help(model.linkEnabled ? L("停止本机所有 MIDI 设备并关闭 Link 启停联动，不停止其他 Link 参与者 · ⇧⌘.") : L("停止所有设备，包括独立设备 · ⇧⌘."))
             }
         }
-
+        .environment(\.colorScheme, scheme ?? windowScheme)
 
     }
 
     private var masterStatusText: String {
+        if model.linkWaiting { return model.linkQuantum == 4 ? L("等待 4 拍边界") : L("等待下一拍") }
+        if model.linkEnabled { return model.playbackAction == .stop ? L("播放中") : L("已停止") }
         if model.onlineDevices.isEmpty { return L("未连接设备") }
         if model.followers.isEmpty { return L("无跟随设备") }
         switch model.playbackAction {
@@ -164,11 +166,22 @@ struct ContentView: View {
     }
 
     private var masterActionTitle: String {
+        if model.linkWaiting { return L("取消开始") }
         switch model.playbackAction {
         case .start: return L("开始播放")
         case .resume: return L("继续播放")
         case .stop: return L("停止")
         }
+    }
+
+    private var masterActionHelp: String {
+        if model.linkWaiting { return L("取消跟随 MIDI 设备等待中的开始；启停联动开启时向 Link 会话发送停止。") }
+        if model.linkStartStopSync {
+            if model.playbackAction == .resume { return L("跟随 MIDI 设备从各自停留位置继续，并向 Link 会话发送开始；独立设备不受影响。") }
+            return model.playbackAction == .stop ? L("停止跟随 MIDI 设备，并向 Link 会话发送停止；独立设备不受影响。")
+                : L("启动跟随 MIDI 设备，并向 Link 会话发送开始；独立设备不受影响。")
+        }
+        return model.playbackAction == .stop ? L("停止所有跟随设备") : model.playbackAction == .resume ? L("跟随设备从各自停留位置继续") : L("所有跟随设备从序列开头播放")
     }
 
     private var transport: some View {
@@ -178,7 +191,7 @@ struct ContentView: View {
                     .frame(maxWidth: .infinity, minHeight: 40)
             }
             .buttonStyle(InstrumentButtonStyle(palette: palette, emphasized: model.playbackAction != .stop))
-            .help(model.playbackAction == .stop ? L("停止所有跟随设备") : model.playbackAction == .resume ? L("跟随设备从各自停留位置继续") : L("所有跟随设备从序列开头播放"))
+            .help(masterActionHelp)
             if model.playbackAction == .resume {
                 Button(action: model.startMaster) {
                     Label(L("全部从头开始"), systemImage: "backward.end.fill")
@@ -186,9 +199,9 @@ struct ContentView: View {
                         .frame(maxWidth: .infinity, minHeight: 40)
                 }
                     .buttonStyle(RestartButtonStyle(palette: palette))
-                    .help(L("仅跟随设备从序列开头播放，不影响独立设备"))
+                    .help(model.linkStartStopSync ? L("跟随 MIDI 设备从头开始，并向 Link 会话发送开始；不会重置其他参与者的乐曲位置。") : L("仅跟随设备从序列开头播放，不影响独立设备"))
             }
-        }.disabled(model.followers.isEmpty)
+        }.disabled(model.followers.isEmpty && !model.linkEnabled)
     }
 
     private var masterPanel: some View {
@@ -212,6 +225,7 @@ struct ContentView: View {
                 Text(L("%1$@ 台跟随设备 · %2$@ 台独立", String(model.followers.count), String(model.independentCount)))
                     .font(.system(size: 11)).foregroundStyle(palette.secondary)
             }
+            LinkControls(model: model, palette: palette)
             TempoControl(text: $model.masterBPMText, label: L("主控速度 BPM"), palette: palette, expanded: true,
                          commit: model.commitMasterBPM, step: { model.setMasterBPM(model.masterBPM + $0) })
             transport
@@ -243,10 +257,35 @@ struct DeviceRow: View {
     @ObservedObject var device: DeviceControl
     let number: Int
     let masterRunning: Bool
+    let linkEnabled: Bool
     let palette: ClockPalette
     let setFollowing: (Bool) -> Void
 
+    private var usesLink: Bool { device.followsMaster && linkEnabled }
+    private var sourceTitle: String {
+        if usesLink { return L("拍点来源：Link") }
+        return device.followsMaster ? L("拍点来源：本地主控") : L("拍点来源：独立时钟")
+    }
+
+    private var clockRoute: some View {
+        HStack(spacing: 8) {
+            Text("MIDI Clock")
+                .font(.system(size: 9, weight: .semibold, design: .monospaced))
+                .foregroundStyle(palette.secondary)
+                .padding(.horizontal, 5).padding(.vertical, 2)
+                .overlay(RoundedRectangle(cornerRadius: 3).stroke(palette.border, lineWidth: 1))
+            Label(sourceTitle, systemImage: usesLink ? "link" : "metronome")
+                .font(.system(size: 10))
+                .foregroundStyle(usesLink ? palette.accent : palette.secondary)
+        }
+        .accessibilityElement(children: .combine)
+        .help(!device.online ? L("所示为同步配置；设备当前已断开，未接收时钟。")
+              : usesLink ? L("此设备接收 MIDI Clock；本应用将 Link 拍点转换为 MIDI 时钟输出，并非原生 Link 连接。")
+              : L("此设备接收本应用发送的 MIDI Clock，拍点由本地主控或独立时钟产生。"))
+    }
+
     var stateLabel: String {
+        if device.waitingForBeat { return L("等待拍点") }
         if !device.online { return L("已断开") }
         if device.running { return L("播放中") }
         if device.followsMaster && masterRunning { return L("等待开始") }
@@ -263,12 +302,13 @@ struct DeviceRow: View {
                     .lineLimit(2).help(device.output.name)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
+            clockRoute
             HStack(spacing: 8) {
                 HStack(spacing: 6) {
-                    Circle().fill(device.running ? palette.playing : palette.secondary)
+                    Circle().fill(device.waitingForBeat ? palette.accent : device.running ? palette.playing : palette.secondary)
                         .frame(width: 5, height: 5).accessibilityHidden(true)
                     Text(stateLabel).font(.system(size: 11))
-                        .foregroundStyle(device.running ? palette.playing : palette.secondary)
+                        .foregroundStyle(device.waitingForBeat ? palette.accent : device.running ? palette.playing : palette.secondary)
                 }
                 if device.followsMaster {
                     Text(String(format: "%.1f BPM", device.bpm))

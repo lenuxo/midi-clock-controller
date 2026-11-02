@@ -3,6 +3,7 @@ import AppKit
 import SwiftUI
 import Combine
 import ClockCore
+import LinkBridge
 
 // Narrow interface keeps controller behavior testable without sending to hardware.
 protocol DeviceTransport: AnyObject {
@@ -11,10 +12,16 @@ protocol DeviceTransport: AnyObject {
     func resume(outputs: [MIDIOutput], bpm: Double, scheduledAt: Double?) throws
     func setBPM(_ bpm: Double)
     func scheduleBPM(_ bpm: Double, at deadline: Double)
+    func setBeatClock(_ clock: BeatClock?, quantum: Double)
+    var waitingForBeat: Bool { get }
     func drainPendingStop()
     func scheduleStop(at deadline: Double) throws
     func stop() throws
     func shutdown()
+}
+extension DeviceTransport {
+    func setBeatClock(_ clock: BeatClock?, quantum: Double) {}
+    var waitingForBeat: Bool { false }
 }
 extension MIDIClockEngine: DeviceTransport {}
 
@@ -38,6 +45,15 @@ final class DeviceControl: ObservableObject, Identifiable {
     @Published var bpmText: String
     @Published var error: String?
     private var engine: DeviceTransport?
+    private var beatClock: BeatClock?
+    private var launchQuantum = 1.0
+    var waitingForBeat: Bool { engine?.waitingForBeat ?? false }
+
+    func setBeatClock(_ clock: BeatClock?, quantum: Double = 1) {
+        beatClock = clock
+        launchQuantum = quantum
+        engine?.setBeatClock(clock, quantum: quantum)
+    }
     private let factory: () throws -> DeviceTransport
     private let defaults: UserDefaults
 
@@ -98,6 +114,7 @@ final class DeviceControl: ObservableObject, Identifiable {
                     self?.canContinue = false
                     self?.error = message
                 }
+                created.setBeatClock(beatClock, quantum: launchQuantum)
                 engine = created
             }
             if !running { engine?.drainPendingStop() }
@@ -126,10 +143,11 @@ final class DeviceControl: ObservableObject, Identifiable {
 
     func stop(at deadline: Double? = nil) {
         guard running else { return }
+        let wasWaiting = waitingForBeat
         do {
             if let deadline { try engine?.scheduleStop(at: deadline) }
             else { try engine?.stop() }
-            canContinue = true
+            canContinue = !wasWaiting
         } catch { canContinue = false; self.error = error.localizedDescription }
         running = false
     }
@@ -163,6 +181,17 @@ final class AppModel: ObservableObject {
     @Published private(set) var masterRunning = false
     @Published var notice: String?
     @Published var error: String?
+    @Published private(set) var linkEnabled = false
+    @Published private(set) var linkPeers = 0
+    @Published private(set) var linkStartStopSync = false
+    @Published private(set) var linkWaiting = false
+    @Published private(set) var linkSessionBPM = 120.0
+    @Published private(set) var linkTempoScale = 1.0
+    @Published private(set) var linkQuantum = 1
+    private var linkSession: LinkControlling?
+    private let linkFactory: (Double) -> LinkControlling?
+    private var linkPoll: AnyCancellable?
+    private var lastLinkTransport: (playing: Bool, time: Double)?
     private var discovery: MIDIClockEngine?
     private var subscriptions: [Int32: AnyCancellable] = [:]
     private var sleepObserver: NSObjectProtocol?
@@ -182,9 +211,11 @@ final class AppModel: ObservableObject {
     private let factory: () throws -> DeviceTransport
 
     init(defaults: UserDefaults = .standard, discover: Bool = true,
+         linkFactory: @escaping (Double) -> LinkControlling? = { LinkSession(bpm: $0) },
          scheduleRemoval: ((TimeInterval, @escaping @MainActor () -> Void) -> () -> Void)? = nil,
          factory: @escaping () throws -> DeviceTransport = { try MIDIClockEngine() }) {
         self.defaults = defaults
+        self.linkFactory = linkFactory
         self.factory = factory
         self.scheduleRemoval = scheduleRemoval ?? Self.scheduleAfter
         masterBPM = ClockSchedule.clamp(defaults.object(forKey: "bpm") as? Double ?? 120)
@@ -209,12 +240,12 @@ final class AppModel: ObservableObject {
     var onlineDevices: [DeviceControl] { devices.filter(\.online) }
     var followers: [DeviceControl] { onlineDevices.filter(\.followsMaster) }
     var independentCount: Int { onlineDevices.filter { !$0.followsMaster }.count }
-    var playingCount: Int { devices.filter(\.running).count }
+    var playingCount: Int { devices.filter { $0.running && !$0.waitingForBeat }.count }
     var pendingFollowers: [DeviceControl] { followers.filter { !$0.running } }
 
     var resumableFollowers: [DeviceControl] { pendingFollowers.filter(\.canContinue) }
     var playbackAction: PlaybackAction {
-        PlaybackAction(running: followers.contains(where: \.running), canContinue: !resumableFollowers.isEmpty)
+        PlaybackAction(running: (linkEnabled && masterRunning) || followers.contains(where: \.running), canContinue: !resumableFollowers.isEmpty)
     }
 
     func performPlaybackAction() {
@@ -228,6 +259,7 @@ final class AppModel: ObservableObject {
     func setFollowing(_ device: DeviceControl, _ following: Bool) {
         guard device.followsMaster != following else { return }
         device.followsMaster = following
+        device.setBeatClock(following && linkEnabled ? linkSession : nil, quantum: Double(linkQuantum))
         notice = nil
         // Detaching preserves its current tempo and transport, without interrupting sound.
         guard following else { device.setBPM(device.bpm); return }
@@ -242,17 +274,127 @@ final class AppModel: ObservableObject {
             error = L("主控 BPM 请输入 20–300 之间的数值。")
             return false
         }
-        setMasterBPM(value)
+        if !linkEnabled || abs(value - masterBPM) > 0.051 { setMasterBPM(value) }
         return true
     }
 
     func setMasterBPM(_ value: Double) {
+        if linkEnabled, let linkSession {
+            let bpm = (ClockSchedule.clamp(value) * 10).rounded() / 10
+            // A folded MIDI tempo edits the session in the same ratio.
+            var sessionBPM = bpm / linkTempoScale
+            if abs(sessionBPM * LinkSession.tempoScale(for: sessionBPM) - bpm) > 0.001 {
+                sessionBPM = bpm // An explicit edit across ratio ranges returns to 1:1.
+            }
+            linkSession.setTempo(sessionBPM, at: LinkSession.hostTime() + 0.050)
+            adoptLinkState(linkSession.state(at: LinkSession.hostTime() + 0.050))
+            return
+        }
         masterBPM = (ClockSchedule.clamp(value) * 10).rounded() / 10
         masterBPMText = String(format: "%.1f", masterBPM)
         let deadline = MIDIClockEngine.batchDeadline()
         followers.forEach { $0.setBPM(masterBPM, at: deadline) }
         defaults.set(masterBPM, forKey: "bpm")
         error = nil
+    }
+
+    func setLinkEnabled(_ enabled: Bool) {
+        guard enabled != linkEnabled else { return }
+        guard playbackAction != .stop else {
+            error = L("请先停止主控，再切换 Link。"); return
+        }
+        if enabled {
+            guard let session = linkFactory(masterBPM), session.setEnabled(true) else {
+                error = L("无法启用 Link，请检查本地网络权限。"); return
+            }
+            linkSession = session
+            masterRunning = false
+            linkEnabled = true
+            linkStartStopSync = false
+            session.setTransportSync(false)
+            let state = session.state(at: LinkSession.hostTime())
+            lastLinkTransport = (state.playing, state.transportTime)
+            adoptLinkState(state)
+            devices.filter(\.followsMaster).forEach { $0.setBeatClock(session, quantum: Double(linkQuantum)) }
+            linkPoll = Timer.publish(every: 0.05, on: .main, in: .common).autoconnect()
+                .sink { [weak self] _ in self?.pollLink() }
+        } else {
+            linkPoll?.cancel(); linkPoll = nil
+            setLinkStartStopSync(false)
+            devices.filter(\.followsMaster).forEach { $0.setBeatClock(nil) }
+            _ = linkSession?.setEnabled(false)
+            linkSession = nil
+            linkEnabled = false
+            linkPeers = 0
+            linkWaiting = false
+        }
+        error = nil
+    }
+
+    func setLinkStartStopSync(_ enabled: Bool) {
+        let value = enabled && linkEnabled
+        // Capture a baseline: enabling sync never consumes an old Play command.
+        if let session = linkSession {
+            let state = session.state(at: LinkSession.hostTime())
+            lastLinkTransport = (state.playing, state.transportTime)
+            session.setTransportSync(value)
+        }
+        linkStartStopSync = value
+    }
+
+    func setLinkQuantum(_ beats: Int) {
+        guard !followers.contains(where: \.running) else { return }
+        linkQuantum = beats == 4 ? 4 : 1
+        if linkEnabled { devices.filter(\.followsMaster).forEach { $0.setBeatClock(linkSession, quantum: Double(linkQuantum)) } }
+    }
+
+    private func adoptLinkState(_ state: LinkState) {
+        guard state.timeline.valid else { error = L("Link 时间线不可用"); return }
+        linkPeers = state.peers
+        linkSessionBPM = state.sessionBPM
+        linkTempoScale = state.tempoScale
+        if abs(masterBPM - state.timeline.bpm) > 0.000001 {
+            masterBPM = state.timeline.bpm
+            masterBPMText = String(format: "%.1f", masterBPM)
+            followers.forEach { $0.setBPM(masterBPM) }
+            defaults.set(masterBPM, forKey: "bpm")
+        }
+    }
+
+    private func publishLinkTransport(_ playing: Bool) {
+        guard linkEnabled, linkStartStopSync, let session = linkSession else { return }
+        session.setPlaying(playing, at: LinkSession.hostTime())
+        let state = session.state(at: LinkSession.hostTime())
+        lastLinkTransport = (state.playing, state.transportTime)
+    }
+
+    private func updateLinkWaiting() { linkWaiting = followers.contains(where: \.waitingForBeat) }
+
+    /// UI polling observes transport; MIDI pulses use fresh snapshots on their own queues.
+    func pollLink() {
+        guard linkEnabled, let session = linkSession else { return }
+        let state = session.state(at: LinkSession.hostTime())
+        adoptLinkState(state)
+        updateLinkWaiting()
+        if !followers.isEmpty && !followers.contains(where: \.running) { masterRunning = false }
+        let changed = lastLinkTransport.map { $0.playing != state.playing || $0.time != state.transportTime } ?? false
+        lastLinkTransport = (state.playing, state.transportTime)
+        guard linkStartStopSync, changed else { return }
+        if state.playing {
+            // Link has no Continue message: preserve eligible local positions, start the rest.
+            let deadline = MIDIClockEngine.batchDeadline()
+            for device in pendingFollowers {
+                if device.canContinue { device.resume(at: deadline) }
+                else { device.start(at: deadline) }
+            }
+            masterRunning = followers.contains(where: \.running) || followers.isEmpty
+            updateLinkWaiting()
+        } else {
+            let deadline = MIDIClockEngine.batchDeadline()
+            followers.forEach { $0.stop(at: deadline) }
+            masterRunning = false
+            linkWaiting = false
+        }
     }
 
     func refreshOutputs() { reconcile(discovery?.outputs() ?? []) }
@@ -274,6 +416,7 @@ final class AppModel: ObservableObject {
         for output in outputs where !devices.contains(where: { $0.id == output.id }) {
             let device = DeviceControl(output: output, defaults: defaults, factory: factory)
             device.setBPM(masterBPM)
+            device.setBeatClock(linkEnabled ? linkSession : nil, quantum: Double(linkQuantum))
             devices.append(device)
             subscriptions[output.id] = device.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() }
         }
@@ -293,11 +436,13 @@ final class AppModel: ObservableObject {
     }
 
     func startMaster() {
-        guard !followers.isEmpty, commitMasterBPM() else { return }
+        guard (!followers.isEmpty || linkEnabled), commitMasterBPM() else { return }
         pendingFollowers.forEach { _ = $0.prepare() }
         let deadline = MIDIClockEngine.batchDeadline()
         pendingFollowers.forEach { $0.start(at: deadline) }
-        masterRunning = followers.contains(where: \.running)
+        masterRunning = followers.contains(where: \.running) || (linkEnabled && followers.isEmpty)
+        publishLinkTransport(true)
+        updateLinkWaiting()
         notice = pendingFollowers.isEmpty ? nil : L("部分跟随设备未能开始，请查看设备行中的提示。")
     }
 
@@ -307,28 +452,39 @@ final class AppModel: ObservableObject {
         targets.forEach { _ = $0.prepare() }
         let deadline = MIDIClockEngine.batchDeadline()
         targets.forEach { $0.resume(at: deadline) }
-        masterRunning = followers.contains(where: \.running)
+        masterRunning = followers.contains(where: \.running) || (linkEnabled && followers.isEmpty)
+        publishLinkTransport(true)
+        updateLinkWaiting()
         notice = pendingFollowers.isEmpty ? nil : L("部分设备无法继续；请查看设备提示，或停止后从头开始。")
     }
 
     func stopMaster() {
+        publishLinkTransport(false)
         let deadline = MIDIClockEngine.batchDeadline()
         followers.forEach { $0.stop(at: deadline) }
         masterRunning = false
+        linkWaiting = false
         notice = nil
     }
 
     func stopAll() {
+        // Emergency stop stays local, and cannot be undone by a later remote Play.
+        setLinkStartStopSync(false)
+        linkWaiting = false
         // Short emergency action, regardless of current selection.
         devices.forEach { $0.stop() }
         masterRunning = false
-        notice = L("所有设备已停止。")
+        notice = linkEnabled ? L("本机 MIDI 已全部停止；Link 启停联动已关闭。") : L("所有设备已停止。")
     }
 
     func shutdown() {
         disconnectedRemovals.values.forEach { $0.cancel() }
         disconnectedRemovals.removeAll()
+        linkPoll?.cancel()
+        linkPoll = nil
         devices.forEach { $0.shutdown() }
+        _ = linkSession?.setEnabled(false)
+        linkSession = nil
         discovery?.shutdown()
         if let sleepObserver { NSWorkspace.shared.notificationCenter.removeObserver(sleepObserver) }
         sleepObserver = nil
