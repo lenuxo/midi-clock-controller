@@ -52,6 +52,7 @@ struct ContentView: View {
                 ScrollView {
                     VStack(spacing: 0) {
                         masterPanel
+                        LinkControls(model: model, palette: palette)
                         HStack {
                             Text(L("MIDI 设备")).font(.headline)
                             if !model.devices.isEmpty {
@@ -107,6 +108,7 @@ struct ContentView: View {
                             .help(L("关于 MIDI Clock · Duan"))
                             .accessibilityLabel(L("关于 MIDI Clock，作者 Duan"))
                     }.padding(.bottom, 16)
+                        .background(OverlayScrollbars())
                 }.clipped()
             }.background(palette.background).foregroundStyle(palette.text)
                 .frame(width: 380, height: geometry.size.height / zoom)
@@ -225,7 +227,6 @@ struct ContentView: View {
                 Text(L("%1$@ 台跟随设备 · %2$@ 台独立", String(model.followers.count), String(model.independentCount)))
                     .font(.system(size: 11)).foregroundStyle(palette.secondary)
             }
-            LinkControls(model: model, palette: palette)
             TempoControl(text: $model.masterBPMText, label: L("主控速度 BPM"), palette: palette, expanded: true,
                          commit: model.commitMasterBPM, step: { model.setMasterBPM(model.masterBPM + $0) })
             transport

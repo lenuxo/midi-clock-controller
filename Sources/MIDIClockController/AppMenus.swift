@@ -118,8 +118,8 @@ struct QuickHelpView: View {
                 VStack(alignment: .leading, spacing: 14) {
                     tip(L("连接设备"), L("通过 USB 连接，将设备时钟设为 External，并开启接收 Start / Continue / Stop。"))
                     tip(L("播放与同步"), L("主控控制跟随 MIDI 设备；独立设备自行启停。停止后可继续或从头开始。继续保留设备自己的位置，不保证乐曲位置一致。"))
-                    tip("Ableton Link", L("停止主控后点击 Link，共享速度和拍点。主控改速会影响 Link 会话。参与者数量不是 MIDI 设备数量；没有其他参与者时仍可运行。"))
-                    tip(L("Link 启停联动"), L("Link 设置中可开启「同步开始与停止」，默认关闭。双方开启后交换新的启停命令，加入会话不会自动播放。开始可对齐下一拍或每 4 拍，等待中可取消。"))
+                    tip("Ableton Link", L("停止主控后，在 Link 会话卡片点击「加入」，共享速度和拍点。主控改速会影响会话。参与者数量不包含本机 MIDI 输出；没有其他参与者时仍可运行。"))
+                    tip(L("Link 启停联动"), L("加入会话后，在「启停控制」中选择「本机」或「联动」。联动需双方开启，切换不会自动播放。下方「MIDI 开始对齐」单独控制下一拍或每 4 拍启动；停止立即执行。"))
                     tip(L("全部停止"), L("停止本机所有 MIDI 设备、取消待开始任务并关闭 Link 启停联动；其他 Link 参与者继续运行。"))
                     tip(L("独立控制"), L("在设备行切换为独立，可单独调速和启停，不受 Link 影响。断线重连后需手动开始；断开超过 30 秒则移出列表。"))
                     tip(L("调整 BPM"), L("点击数字编辑，Enter 确认、Esc 取消；↑↓ 微调。非编辑时 ↑↓ 调整主控速度，长按方向键或加减键会逐渐加速。"))
@@ -136,6 +136,7 @@ struct QuickHelpView: View {
                         shortcut(L("实际大小（100%）"), "⌘0")
                     }
                 }.font(.system(size: 12)).frame(maxWidth: .infinity, alignment: .leading)
+                    .background(OverlayScrollbars())
             }
             HStack {
                 Button(L("全部停止"), action: model.stopAll)

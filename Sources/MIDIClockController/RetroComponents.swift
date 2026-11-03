@@ -186,32 +186,49 @@ struct DeviceModeControl: View {
     let select: (Bool) -> Void
 
     var body: some View {
+        ClockChoiceControl(value: followsMaster, first: L("跟随"), second: L("独立"),
+                           label: deviceName, palette: palette,
+                           width: AppLanguage.current == "en" ? 144 : 110, select: select)
+    }
+}
+
+/// Shared two-option control for device routing and Link preferences.
+struct ClockChoiceControl: View {
+    let value: Bool
+    let first: String
+    let second: String
+    let label: String
+    let palette: ClockPalette
+    let width: CGFloat?
+    let select: (Bool) -> Void
+
+    var body: some View {
         HStack(spacing: 2) {
-            option(true, title: L("跟随"), description: L("跟随主控"))
-            option(false, title: L("独立"), description: L("独立控制"))
+            option(true, title: first)
+            option(false, title: second)
         }
         .padding(3)
-        .frame(width: AppLanguage.current == "en" ? 144 : 110)
+        .frame(width: width)
         .background(palette.background, in: RoundedRectangle(cornerRadius: 5))
         .overlay(RoundedRectangle(cornerRadius: 5).stroke(palette.border, lineWidth: 1))
     }
 
-    private func option(_ following: Bool, title: String, description: String) -> some View {
+    private func option(_ option: Bool, title: String) -> some View {
         Button {
-            if followsMaster != following { select(following) }
+            if value != option { select(option) }
         } label: {
             Text(title)
                 .lineLimit(1)
                 .frame(maxWidth: .infinity, minHeight: 24)
         }
-        .buttonStyle(DeviceModeButtonStyle(palette: palette, selected: followsMaster == following))
-        .accessibilityLabel(deviceName + " · " + description)
-        .accessibilityAddTraits(followsMaster == following ? .isSelected : [])
-        .help(description)
+        .buttonStyle(ClockChoiceButtonStyle(palette: palette, selected: value == option))
+        .accessibilityLabel(label + " · " + title)
+        .accessibilityAddTraits(value == option ? .isSelected : [])
+        .help(title)
     }
 }
 
-private struct DeviceModeButtonStyle: ButtonStyle {
+private struct ClockChoiceButtonStyle: ButtonStyle {
     let palette: ClockPalette
     let selected: Bool
     @Environment(\.isEnabled) private var enabled

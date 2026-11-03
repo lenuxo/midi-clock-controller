@@ -10,6 +10,7 @@ typedef struct {
     double tempo, beat, seconds_per_beat, transport_time;
     uint64_t peers;
     bool playing;
+    uint64_t transport_revision;
 } MCLSnapshot;
 MCLLink mcl_create(double bpm);
 void mcl_destroy(MCLLink link);

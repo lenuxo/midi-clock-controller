@@ -43,7 +43,7 @@ extension LinkSessionTests {
             XCTFail("Official Link peers could not discover each other"); return
         }
         guard a.state(at: LinkSession.hostTime()).peers == 1 && b.state(at: LinkSession.hostTime()).peers == 1 else {
-            XCTFail("Unexpected external Link peers; refusing to change their tempo or transport"); return
+            throw XCTSkip("Unexpected external Link peers; no tempo or transport commands sent")
         }
         a.setTempo(137.3, at: LinkSession.hostTime() + 0.05)
         XCTAssertTrue(waitUntil { abs(b.state(at: LinkSession.hostTime()).sessionBPM - 137.3) < 0.001 })
@@ -59,5 +59,32 @@ extension LinkSessionTests {
         XCTAssertTrue(waitUntil { b.state(at: LinkSession.hostTime()).playing })
         b.setPlaying(false, at: LinkSession.hostTime())
         XCTAssertTrue(waitUntil { !a.state(at: LinkSession.hostTime()).playing })
+    }
+}
+
+extension LinkSessionTests {
+    func testTransportRevisionComesFromOfficialCallbackNotTempoMapping() async throws {
+        let session = try XCTUnwrap(LinkSession(bpm: 120)) // Network stays disabled.
+        func waitForRevision(after revision: UInt64) async -> Bool {
+            let deadline = Date().addingTimeInterval(2)
+            while Date() < deadline {
+                if session.state(at: LinkSession.hostTime()).transportRevision > revision { return true }
+                try? await Task.sleep(nanoseconds: 5_000_000)
+            }
+            return false
+        }
+        let initial = session.state(at: LinkSession.hostTime()).transportRevision
+        session.setPlaying(true, at: LinkSession.hostTime())
+        let started = await waitForRevision(after: initial)
+        XCTAssertTrue(started)
+        let playing = session.state(at: LinkSession.hostTime())
+        XCTAssertTrue(playing.playing)
+        session.setTempo(170, at: LinkSession.hostTime())
+        try await Task.sleep(nanoseconds: 30_000_000)
+        XCTAssertEqual(session.state(at: LinkSession.hostTime()).transportRevision, playing.transportRevision)
+        session.setPlaying(false, at: LinkSession.hostTime())
+        let stopped = await waitForRevision(after: playing.transportRevision)
+        XCTAssertTrue(stopped)
+        XCTAssertFalse(session.state(at: LinkSession.hostTime()).playing)
     }
 }

@@ -54,16 +54,17 @@ private final class PreviewLink: LinkControlling {
     var bpm: Double
     var playing = false
     var stamp = 0.0
+    var transportRevision: UInt64 = 0
     init(bpm: Double) { self.bpm = bpm }
     func setEnabled(_ enabled: Bool) -> Bool { true }
     func setTransportSync(_ enabled: Bool) {}
     func setTempo(_ bpm: Double, at time: Double) { self.bpm = bpm }
-    func setPlaying(_ playing: Bool, at time: Double) { self.playing = playing; stamp = time }
+    func setPlaying(_ playing: Bool, at time: Double) { self.playing = playing; stamp = time; transportRevision += 1 }
     func timeline(at time: Double) -> BeatTimeline { state(at: time).timeline }
     func state(at time: Double) -> LinkState {
         let scale = LinkSession.tempoScale(for: bpm)
         return LinkState(timeline: BeatTimeline(hostTime: time, beat: time * bpm * scale / 60, secondsPerBeat: 60 / (bpm * scale), bpm: bpm * scale),
-                         sessionBPM: bpm, tempoScale: scale, peers: 2, playing: playing, transportTime: stamp)
+                         sessionBPM: bpm, tempoScale: scale, peers: 2, playing: playing, transportTime: stamp, transportRevision: transportRevision)
     }
 }
 #endif

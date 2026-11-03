@@ -191,7 +191,8 @@ final class AppModel: ObservableObject {
     private var linkSession: LinkControlling?
     private let linkFactory: (Double) -> LinkControlling?
     private var linkPoll: AnyCancellable?
-    private var lastLinkTransport: (playing: Bool, time: Double)?
+    private var lastLinkTransport: (playing: Bool, revision: UInt64)?
+    private var reconcileLocalLinkTransport = false
     private var discovery: MIDIClockEngine?
     private var subscriptions: [Int32: AnyCancellable] = [:]
     private var sleepObserver: NSObjectProtocol?
@@ -313,7 +314,7 @@ final class AppModel: ObservableObject {
             linkStartStopSync = false
             session.setTransportSync(false)
             let state = session.state(at: LinkSession.hostTime())
-            lastLinkTransport = (state.playing, state.transportTime)
+            lastLinkTransport = (state.playing, state.transportRevision)
             adoptLinkState(state)
             devices.filter(\.followsMaster).forEach { $0.setBeatClock(session, quantum: Double(linkQuantum)) }
             linkPoll = Timer.publish(every: 0.05, on: .main, in: .common).autoconnect()
@@ -336,7 +337,8 @@ final class AppModel: ObservableObject {
         // Capture a baseline: enabling sync never consumes an old Play command.
         if let session = linkSession {
             let state = session.state(at: LinkSession.hostTime())
-            lastLinkTransport = (state.playing, state.transportTime)
+            lastLinkTransport = (state.playing, state.transportRevision)
+            reconcileLocalLinkTransport = false
             session.setTransportSync(value)
         }
         linkStartStopSync = value
@@ -363,9 +365,12 @@ final class AppModel: ObservableObject {
 
     private func publishLinkTransport(_ playing: Bool) {
         guard linkEnabled, linkStartStopSync, let session = linkSession else { return }
+        let baseline = session.state(at: LinkSession.hostTime())
+        // Record our intention before committing. A subsequent remote reversal
+        // must be observed, not consumed as the acknowledgement of our command.
+        lastLinkTransport = (playing, baseline.transportRevision)
+        reconcileLocalLinkTransport = true
         session.setPlaying(playing, at: LinkSession.hostTime())
-        let state = session.state(at: LinkSession.hostTime())
-        lastLinkTransport = (state.playing, state.transportTime)
     }
 
     private func updateLinkWaiting() { linkWaiting = followers.contains(where: \.waitingForBeat) }
@@ -377,8 +382,13 @@ final class AppModel: ObservableObject {
         adoptLinkState(state)
         updateLinkWaiting()
         if !followers.isEmpty && !followers.contains(where: \.running) { masterRunning = false }
-        let changed = lastLinkTransport.map { $0.playing != state.playing || $0.time != state.transportTime } ?? false
-        lastLinkTransport = (state.playing, state.transportTime)
+        let observedCommand = lastLinkTransport.map { $0.revision != state.transportRevision } ?? false
+        let shouldObserve = observedCommand || reconcileLocalLinkTransport
+        let changed = shouldObserve && (lastLinkTransport?.playing != state.playing)
+        // Do not consume timeline remapping as a new command or overwrite a
+        // local intention while its asynchronous SDK callback is still pending.
+        if shouldObserve { lastLinkTransport = (state.playing, state.transportRevision) }
+        reconcileLocalLinkTransport = false
         guard linkStartStopSync, changed else { return }
         if state.playing {
             // Link has no Continue message: preserve eligible local positions, start the rest.
