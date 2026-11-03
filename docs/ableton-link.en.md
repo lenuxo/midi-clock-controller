@@ -4,7 +4,7 @@
 
 The app bridges a shared Link beat timeline to USB MIDI Clock at 24 pulses per quarter note. Following MIDI devices use that timeline; independent devices keep their own tempo and transport.
 
-Each device card labels **MIDI Clock** as the actual output protocol. **Beat source: Link** means Link-to-MIDI bridging; **Local master** and **Independent** use local clocks. The **Link Session** group summarizes other participants, shared tempo and beat timing, and local Start/Stop sync. Link does not expose names or individual connection, sync, or playback status. **MIDI Devices** lists each local MIDI output separately. Labels on disconnected cards describe the configured route, not active clock reception.
+Each device card labels **MIDI Clock** as the actual output protocol. **Beat source: Link** means Link-to-MIDI bridging; **Local master** and **Independent** use local clocks. The **Ableton Link** group summarizes other participants and transport settings. Shared tempo appears in the master display; the original Link tempo is shown separately only when MIDI uses a tempo ratio. Link does not expose names or individual connection, sync, or playback status. **MIDI Devices** lists each local MIDI output separately. Labels on disconnected cards describe the configured route, not active clock reception.
 
 ## Use
 

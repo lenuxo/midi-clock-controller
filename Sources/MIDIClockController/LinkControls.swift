@@ -13,12 +13,22 @@ struct LinkControls: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 8) {
-                Text(L("Link 会话")).font(.headline)
+                Text("Ableton Link").font(.headline)
                 Text(model.linkEnabled
                      ? (model.linkPeers == 0 ? L("暂无其他参与者") : L("%1$@ 个其他参与者", String(model.linkPeers))) : L("未加入"))
                     .font(.caption).foregroundStyle(palette.secondary)
                     .help(L("数量表示其他 Link 应用或设备，不包含本机 MIDI 输出。暂无参与者时，请检查双方 Link 开关、网络和本地网络权限。"))
                 Spacer(minLength: 0)
+                Button {
+                    model.setLinkEnabled(!model.linkEnabled)
+                } label: {
+                    Text(model.linkEnabled ? L("退出") : L("加入"))
+                        .frame(minHeight: 28)
+                }
+                .buttonStyle(RestartButtonStyle(palette: palette))
+                .disabled(model.playbackAction == .stop)
+                .accessibilityLabel(model.linkEnabled ? L("退出 Link 会话") : L("加入 Link 会话"))
+                .help(model.playbackAction == .stop ? L("请先停止主控，再切换 Link。") : model.linkEnabled ? L("退出后使用本地时钟，保留当前速度。") : L("加入后共享速度和拍点，不会自动开始播放。"))
             }.padding(.horizontal, 16).padding(.vertical, 12)
             sessionCard.padding(.horizontal, 12)
             if model.linkEnabled {
@@ -34,36 +44,12 @@ struct LinkControls: View {
 
     private var sessionCard: some View {
         VStack(alignment: .leading, spacing: 12) {
-            HStack(spacing: 8) {
-                Label("Ableton Link", systemImage: "link")
-                    .font(.system(size: 13, weight: .semibold))
-                Spacer(minLength: 0)
-                Button {
-                    model.setLinkEnabled(!model.linkEnabled)
-                } label: {
-                    Text(model.linkEnabled ? L("退出") : L("加入"))
-                        .frame(minHeight: 28)
-                }
-                .buttonStyle(RestartButtonStyle(palette: palette))
-                .disabled(model.playbackAction == .stop)
-                .accessibilityLabel(model.linkEnabled ? L("退出 Link 会话") : L("加入 Link 会话"))
-                .help(model.playbackAction == .stop ? L("请先停止主控，再切换 Link。") : model.linkEnabled ? L("退出后使用本地时钟，保留当前速度。") : L("加入后共享速度和拍点，不会自动开始播放。"))
-            }
             if model.linkEnabled {
-                HStack(alignment: .firstTextBaseline, spacing: 8) {
-                    Text(String(format: "%.1f BPM", model.linkSessionBPM))
-                        .font(.system(size: 12, weight: .semibold, design: .monospaced))
-                    Text(model.linkPeers == 0 ? L("等待其他参与者") : L("速度与拍点共享"))
-                        .font(.system(size: 10)).foregroundStyle(palette.secondary)
-                    Spacer(minLength: 0)
-                }
                 if model.linkTempoScale != 1 {
                     Text(L("Link %1$@ BPM · MIDI %2$@", String(format: "%.1f", model.linkSessionBPM), ratioText))
                         .font(.system(size: 10)).foregroundStyle(palette.accent)
                         .help(L("Link 会话速度超出 20–300 BPM，MIDI 按所示比例输出；数位屏显示折算后的 MIDI 速度。"))
                 }
-                Rectangle().fill(palette.border.opacity(0.6)).frame(height: 1)
-                    .accessibilityHidden(true)
                 HStack(alignment: .top, spacing: 12) {
                     VStack(alignment: .leading, spacing: 6) {
                         Text(L("启停控制")).font(.system(size: 11)).foregroundStyle(palette.secondary)

@@ -21,7 +21,7 @@ Download the DMG from [GitHub Releases](https://github.com/lenuxo/midi-clock-con
 
 Connect your MIDI gear, set its clock source to **USB MIDI / External**, and enable Start / Continue / Stop reception. Choose a BPM in the app and start playback. Devices follow the master by default; use independent control when a device needs its own tempo or transport. Each card labels **MIDI Clock** as its output protocol and identifies its beat source: Link, local master, or independent. A Link beat source means the app bridges Link to MIDI; it does not mean the hardware has a native Link connection.
 
-The **Link Session** group shows other participants, shared tempo and beat timing, and local Start/Stop sync status. Link does not expose participant names or individual sync status. **MIDI Devices** continues to list each local MIDI output separately.
+The **Ableton Link** group shows other participants and transport settings. Shared tempo appears in the master display; the Link card only adds the original tempo when MIDI needs a tempo ratio. Link does not expose participant names or individual sync status. **MIDI Devices** continues to list each local MIDI output separately.
 
 Stop the master and click **Join** in the Ableton Link card. **Transport → Local / Linked** controls optional Start/Stop sync (Local by default). **MIDI launch → Next beat / Every 4 beats** separately controls the MIDI start boundary; Stop is immediate. Joining never starts MIDI playback automatically. **Stop All** stops local MIDI and disables transport sync. Link is off at each app launch. See the [Link guide](docs/ableton-link.en.md) for behavior and testing.
 
