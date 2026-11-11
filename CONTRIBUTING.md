@@ -18,6 +18,8 @@ zsh scripts/build-app.sh
 git diff --check
 ```
 
+调度回归覆盖跟随设备延迟唤醒后逐步回到共同拍点，以及全部停止时先向所有设备排程、再等待消息送达。控制器测试还覆盖 MIDI 初始化失败后刷新重试、快速 Link 启停和编辑 BPM 期间的远端改速。
+
 CoreMIDI 测试可能在服务不可用时跳过。需要完整 MIDI 验证时，在测试命令前设置 `REQUIRE_MIDI_TESTS=1`。测试只连接私有虚拟端口；涉及真实硬件的验证须明确设备和操作范围。
 
 Link 真实网络测试默认跳过。设置 `REQUIRE_LINK_NETWORK_TESTS=1` 可强制运行官方 SDK 的双参与者发现、改速、拍点与启停验证；只在隔离测试网络运行，避免影响演出会话。Debug 预览使用模拟 Link 和 MIDI，不联网、不连接硬件。完整流程见 [Link 验证说明](docs/ableton-link.md#验证)。

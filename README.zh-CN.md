@@ -19,7 +19,7 @@
 
 从 [GitHub Releases](https://github.com/lenuxo/midi-clock-controller/releases/latest) 下载 DMG，打开后将应用拖入 **Applications（应用程序）**。预编译版本需要 **Apple Silicon 芯片和 macOS 13 或更高版本**。
 
-连接 MIDI 设备，将硬件时钟源设为 **USB MIDI / External**，并开启接收 Start / Continue / Stop。在应用中设置 BPM，开始播放即可。设备默认跟随主控，需要单独调速或启停时可切换为独立控制。每张卡片标明 **MIDI Clock** 输出协议，以及 Link、本地主控或独立时钟的拍点来源。来源为 Link 表示由应用桥接为 MIDI，不代表设备建立了原生 Link 连接。
+连接 MIDI 设备，将硬件时钟源设为 **USB MIDI / External**，并开启接收 Start / Continue / Stop。在应用中设置 BPM，开始播放即可。如果 MIDI 服务初始化失败，可在服务恢复后点击「刷新 MIDI 设备」重试。设备默认跟随主控，需要单独调速或启停时可切换为独立控制。每张卡片标明 **MIDI Clock** 输出协议，以及 Link、本地主控或独立时钟的拍点来源。来源为 Link 表示由应用桥接为 MIDI，不代表设备建立了原生 Link 连接。
 
 **Ableton Link** 分组展示其他参与者数量和启停设置。共享速度统一显示在主控数位屏；仅当 MIDI 需要速度折算时，Link 卡片补充原始速度与比例。Link 不提供参与者名称及逐台同步状态；**MIDI 设备**分组仍逐台展示本机 MIDI 输出。
 

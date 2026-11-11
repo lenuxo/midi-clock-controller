@@ -11,6 +11,7 @@ typedef struct {
     uint64_t peers;
     bool playing;
     uint64_t transport_revision;
+    bool callback_playing;
 } MCLSnapshot;
 MCLLink mcl_create(double bpm);
 void mcl_destroy(MCLLink link);

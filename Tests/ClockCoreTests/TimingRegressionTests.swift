@@ -86,6 +86,34 @@ final class TimingRegressionTests: XCTestCase {
         try engine.stop()
     }
 
+    func testLateFollowerReturnsToSharedGridWithoutLosingPulses() throws {
+        let first = Host(), late = Host()
+        let a = first.engine(), b = late.engine()
+        for engine in [a, b] {
+            try engine.start(outputs: [output], bpm: 120, scheduledAt: 0.050)
+            engine.scheduleBPM(180, at: 0.134)
+        }
+        for ms in 1...1200 {
+            first.time = Double(ms) / 1000
+            late.time = first.time
+            a.pumpForTesting()
+            if ms < 40 || ms >= 55 { b.pumpForTesting() }
+        }
+        let reference = first.events.filter { $0.status == 0xF8 }
+        let actual = late.events.filter { $0.status == 0xF8 }
+        XCTAssertGreaterThan(reference.count, 70)
+        XCTAssertEqual(reference.count, actual.count)
+        XCTAssertEqual(actual.first?.time, 0.055)
+        for (a, b) in zip(reference.suffix(32), actual.suffix(32)) {
+            XCTAssertEqual(a.time, b.time, accuracy: 1e-9)
+        }
+        for (a, b) in zip(actual, actual.dropFirst()) {
+            XCTAssertGreaterThanOrEqual(b.time - a.time, 0.98 * 60 / (180 * 24) - 1e-9)
+        }
+        a.shutdown()
+        b.shutdown()
+    }
+
     func testHundredImmediateStartStopCyclesDoNotBuildFutureBacklog() throws {
         let host = Host()
         let engine = host.engine()

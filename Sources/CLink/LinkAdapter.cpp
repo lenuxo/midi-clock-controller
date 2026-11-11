@@ -9,11 +9,15 @@ using Link = ableton::Link;
 struct LinkHandle {
     std::mutex transportMutex;
     uint64_t transportRevision = 0;
+    bool callbackPlaying = false;
     Link link;
     explicit LinkHandle(double bpm) : link(bpm) {
-        link.setStartStopCallback([this](bool) {
+        link.setStartStopCallback([this](bool playing) {
             std::lock_guard<std::mutex> lock(transportMutex);
-            ++transportRevision;
+            if (playing != callbackPlaying) {
+                callbackPlaying = playing;
+                ++transportRevision;
+            }
         });
     }
 };
@@ -40,7 +44,7 @@ MCLSnapshot mcl_snapshot(MCLLink handle, double seconds) {
     const auto b = state.timeAtBeat(beat + 1.0, 4.0);
     return {state.tempo(), beat, (b - a).count() / 1000000.0,
             state.timeForIsPlaying().count() / 1000000.0, link.numPeers(), state.isPlaying(),
-            holder.transportRevision};
+            holder.transportRevision, holder.callbackPlaying};
 }
 void mcl_set_tempo(MCLLink handle, double bpm, double seconds) {
     auto &holder = *static_cast<LinkHandle *>(handle);

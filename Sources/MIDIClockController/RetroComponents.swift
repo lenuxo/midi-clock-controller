@@ -19,23 +19,37 @@ struct SegmentDigits: View {
     }
 }
 
+struct TempoDraft {
+    private let initial: String
+    var text: String
+
+    init(_ displayed: String) {
+        initial = displayed
+        text = displayed
+    }
+
+    func submit(using commit: (String) -> Bool) -> Bool {
+        text == initial || commit(text)
+    }
+}
+
 struct TempoControl: View {
-    @Binding var text: String
+    let text: String
     let label: String
     let palette: ClockPalette
     var small = false
     var expanded = false
-    let commit: () -> Bool
+    let commit: (String) -> Bool
     let step: (Double) -> Void
     @FocusState private var focused: Bool
     @State private var editing = false
-    @State private var originalText = ""
+    @State private var draft = TempoDraft("")
     var body: some View {
         HStack(spacing: 0) {
             HStack(alignment: .bottom, spacing: 10) {
             ZStack {
                 if editing {
-                    TextField(label, text: $text)
+                    TextField(label, text: $draft.text)
                         .textFieldStyle(.plain)
                         .font(SegmentFont.font(size: small ? 38 : 56))
                         .multilineTextAlignment(.trailing)
@@ -43,10 +57,10 @@ struct TempoControl: View {
                         .background(TempoSelectionAppearance(background: palette.displaySelection, foreground: palette.digits, focused: focused))
                         .focused($focused)
                         .onAppear { DispatchQueue.main.async { focused = true } }
-                        .onSubmit { if commit() { focused = false; editing = false } }
+                        .onSubmit { if draft.submit(using: commit) { cancelEditing() } }
                         .accessibilityLabel(label)
                 } else {
-                    Button { originalText = text; editing = true } label: {
+                    Button { draft = TempoDraft(text); editing = true } label: {
                         SegmentDigits(text: text, color: palette.digits, size: small ? 38 : 56)
                             .frame(width: small ? 130 : 188, height: small ? 38 : 56)
                             .contentShape(Rectangle())
@@ -82,21 +96,21 @@ struct TempoControl: View {
         // Arrow-key adjustments are drafts too: Escape never sends a tempo change.
         editing = false
         focused = false
-        text = originalText
     }
     private func stepDraft(_ delta: Double) {
-        guard let value = DeviceControl.parseBPM(text) else { return }
-        text = String(format: "%.1f", min(300, max(20, value + delta)))
+        guard let value = DeviceControl.parseBPM(draft.text) else { return }
+        draft.text = String(format: "%.1f", min(300, max(20, value + delta)))
     }
+
     private func finishEditing() {
         guard editing else { return }
         // Invalid input must never become a misleading seven-segment readout.
-        if !commit() { text = originalText }
+        _ = draft.submit(using: commit)
         editing = false
         focused = false
     }
     private func adjust(_ delta: Double) {
-        if editing && !commit() { return }
+        if editing && !draft.submit(using: commit) { return }
         focused = false
         editing = false
         step(delta)

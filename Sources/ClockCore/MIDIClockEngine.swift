@@ -44,7 +44,8 @@ public final class MIDIClockEngine {
     private var wait: (Double) -> Void = { Thread.sleep(forTimeInterval: $0) }
     private var testSender: ((MIDIEndpointRef, UInt8, Double) throws -> Void)?
     private var automaticTimer = true
-    private let lookAhead = 0.008
+    private static let schedulingHorizon = 0.008
+    private var lookAhead: Double { Self.schedulingHorizon }
     private var activity: NSObjectProtocol?
 
     // Injectable host time and sink let tests reproduce scheduling stalls without wall-clock races.
@@ -121,7 +122,7 @@ public final class MIDIClockEngine {
             destinations = unique
             let start = max(now() + lookAhead, transportBoundary + 0.001, scheduledAt ?? 0)
             lastSubmitted = start
-            schedule = ClockSchedule(bpm: bpm, start: start + 0.001)
+            schedule = ClockSchedule(bpm: bpm, start: start + 0.001, preserveGrid: scheduledAt != nil)
             if let beatClock {
                 let timeline = beatClock.timeline(at: now())
                 guard timeline.valid else { schedule = nil; throw MIDIError(operation: L("Link 时间线不可用"), status: -1) }
@@ -200,6 +201,13 @@ public final class MIDIClockEngine {
         Double(AudioGetCurrentHostTime()) / AudioGetHostClockFrequency() + 0.050
     }
 
+    public var lastQueuedEventTime: Double { serialized { schedule == nil ? 0 : lastSubmitted } }
+
+    /// The scheduling horizon plus the guard after the last queued pulse.
+    public static func emergencyStopDeadline() -> Double {
+        Double(AudioGetCurrentHostTime()) / AudioGetHostClockFrequency() + schedulingHorizon + 0.001
+    }
+
     /// Queue a group Stop without blocking other devices from receiving the same deadline.
     public func scheduleStop(at deadline: Double) throws {
         try serialized { try stopOnQueue(scheduledAt: deadline, drain: false) }
@@ -267,12 +275,11 @@ public final class MIDIClockEngine {
             fail(L("时钟调度中断，已停止。请重新开始。"))
             return
         }
-        // If a deadline is slightly late, shift the remaining grid by the same amount.
-        // Clamping only this pulse would compress the following interval.
+        // Apply the local or group late-wake policy before submitting this tick.
         current.delayNext(until: time)
         do {
             while current.next <= time + lookAhead {
-                if let change = pendingTempo, current.next >= change.time {
+                if let change = pendingTempo, current.gridTime >= change.time {
                     current.setBPM(change.bpm)
                     pendingTempo = nil
                 }

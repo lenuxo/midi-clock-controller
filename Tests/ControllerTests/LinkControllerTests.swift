@@ -32,6 +32,29 @@ final class LinkControllerTests: XCTestCase {
         XCTAssertTrue(link.tempoEdits.isEmpty, "Starting must not publish a rounded display value")
     }
 
+    func testRemoteTempoChangeWhileEditingSurvivesCancelAndPlayback() {
+        let (model, link, _) = setup()
+        defer { model.shutdown() }
+        model.setLinkEnabled(true)
+        var draft = TempoDraft(model.masterBPMText)
+        draft.text = "13"
+        link.bpm = 150
+        model.pollLink()
+        XCTAssertEqual(draft.text, "13")
+        XCTAssertEqual(model.masterBPMText, "150.0")
+        // An unchanged edit may end on focus loss. A cancelled edit is
+        // discarded without submission. Neither path publishes the old BPM.
+        XCTAssertTrue(TempoDraft("120.0").submit(using: model.commitMasterBPM))
+        model.startMaster()
+        model.stopMaster()
+        model.continueMaster()
+        XCTAssertTrue(link.tempoEdits.isEmpty)
+        XCTAssertEqual(link.bpm, 150)
+        draft.text = "160"
+        XCTAssertTrue(draft.submit(using: model.commitMasterBPM))
+        XCTAssertEqual(link.tempoEdits, [160])
+    }
+
     func testRemoteTempoTransportAndEmergencyStopAreIsolated() {
         let (model, link, transports) = setup()
         defer { model.shutdown() }
@@ -155,7 +178,7 @@ private final class FakeLink: LinkControlling {
     func setEnabled(_ enabled: Bool) -> Bool { self.enabled = enabled; return true }
     func setTransportSync(_ enabled: Bool) {}
     func setTempo(_ bpm: Double, at time: Double) { tempoEdits.append(bpm); self.bpm = bpm }
-    func setPlaying(_ playing: Bool, at time: Double) { transportEdits.append(playing); remotePlay(playing); onSetPlaying?() }
+    func setPlaying(_ playing: Bool, at time: Double) { transportEdits.append(playing); remotePlay(playing); stamp = time; onSetPlaying?() }
     func remotePlay(_ value: Bool) { playing = value; stamp += 1; revision += 1 }
     func timeline(at hostTime: Double) -> BeatTimeline { state(at: hostTime).timeline }
     func state(at time: Double) -> LinkState {
@@ -274,6 +297,39 @@ extension LinkControllerTests {
         link.remotePlay(true)
         model.pollLink()
         XCTAssertEqual(model.playingCount, 2)
+    }
+
+    func testStopAndPlayBetweenPollsResumeEachFollowerExactlyOnce() {
+        let (model, link, transports) = setup()
+        defer { model.shutdown() }
+        model.setLinkEnabled(true)
+        model.setLinkStartStopSync(true)
+        link.remotePlay(true)
+        model.pollLink()
+        link.remotePlay(false)
+        link.remotePlay(true)
+        model.pollLink()
+        model.pollLink()
+        XCTAssertEqual(transports().map(\.resumes), [1, 1])
+        XCTAssertEqual(model.playingCount, 2)
+        XCTAssertTrue(link.transportEdits.isEmpty)
+    }
+
+    func testDelayedLocalPlayStopCallbacksNeverReplayTransport() {
+        let (model, link, transports) = setup()
+        defer { model.shutdown() }
+        model.setLinkEnabled(true)
+        model.setLinkStartStopSync(true)
+        model.startMaster()
+        link.revision = 0 // SDK callbacks run after both local writes.
+        model.stopMaster()
+        link.revision = 2
+        model.pollLink()
+        XCTAssertEqual(model.playingCount, 0)
+        XCTAssertEqual(transports().map(\.resumes), [0, 0])
+        link.remotePlay(true)
+        model.pollLink()
+        XCTAssertEqual(transports().map(\.resumes), [1, 1])
     }
 
     func testRemoteTransportUpdatesUIWithoutFollowersAndRapidAlternation() {

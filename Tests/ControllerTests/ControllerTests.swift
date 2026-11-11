@@ -180,8 +180,8 @@ final class ControllerTests: XCTestCase {
     func testInvalidMasterTempoDoesNotChangeOrStartDevices() {
         let model = AppModel(defaults: UserDefaults(suiteName: UUID().uuidString)!, discover: false, factory: { FakeTransport() })
         model.reconcile([MIDIOutput(id: 1, endpoint: 1, name: "A")])
-        model.masterBPMText = "999"
-        model.startMaster()
+        XCTAssertFalse(model.commitMasterBPM("999"))
+        XCTAssertEqual(model.masterBPMText, "120.0")
         XCTAssertEqual(model.playingCount, 0)
         XCTAssertEqual(model.devices[0].bpm, 120)
         XCTAssertNotNil(model.error)
@@ -194,11 +194,13 @@ private final class FakeTransport: DeviceTransport {
     var resumes: [Double?] = []
     var failStop = false
     var stops: [Double] = []
+    var onDrain: (() -> Void)?
+    var lastQueuedEventTime = 0.0
     func start(outputs: [MIDIOutput], bpm: Double, scheduledAt: Double?) throws { starts.append(scheduledAt) }
     func resume(outputs: [MIDIOutput], bpm: Double, scheduledAt: Double?) throws { resumes.append(scheduledAt) }
     func setBPM(_ bpm: Double) {}
     func scheduleBPM(_ bpm: Double, at deadline: Double) {}
-    func drainPendingStop() {}
+    func drainPendingStop() { onDrain?() }
     func scheduleStop(at deadline: Double) throws { stops.append(deadline) }
     func stop() throws { if failStop { throw MIDIError(operation: "Test stop", status: -1) } }
     func shutdown() {}
@@ -270,4 +272,75 @@ extension ControllerTests {
         callback?()
         XCTAssertEqual(model.devices.count, 1)
     }
+}
+
+extension ControllerTests {
+    @MainActor
+    func testFailedLastFollowerAndModeSwitchUseTheSameMasterState() {
+        let transport = FakeTransport()
+        let model = AppModel(defaults: UserDefaults(suiteName: UUID().uuidString)!, discover: false, factory: { transport })
+        defer { model.shutdown() }
+        model.reconcile([MIDIOutput(id: 1, endpoint: 1, name: "A")])
+        model.startMaster()
+        transport.onFailure?("Test failure")
+        XCTAssertFalse(model.masterRunning)
+        XCTAssertEqual(model.playbackAction, .start)
+        let device = model.devices[0]
+        model.setFollowing(device, false)
+        device.start()
+        model.setFollowing(device, true)
+        XCTAssertFalse(device.running)
+    }
+
+    @MainActor
+    func testEmergencyStopQueuesEveryDeviceBeforeWaiting() throws {
+        var transports: [FakeTransport] = []
+        let model = AppModel(defaults: UserDefaults(suiteName: UUID().uuidString)!, discover: false, factory: {
+            let transport = FakeTransport()
+            transports.append(transport)
+            return transport
+        })
+        defer { model.shutdown() }
+        model.reconcile([MIDIOutput(id: 1, endpoint: 1, name: "A"), MIDIOutput(id: 2, endpoint: 2, name: "B")])
+        model.startMaster()
+        model.setFollowing(model.devices[1], false)
+        let queuedStart = MIDIClockEngine.batchDeadline() + 1
+        transports[0].lastQueuedEventTime = queuedStart
+        var drains = 0
+        for transport in transports {
+            transport.onDrain = {
+                drains += 1
+                XCTAssertTrue(transports.allSatisfy { $0.stops.count == 1 })
+            }
+        }
+        model.stopAll()
+        XCTAssertEqual(drains, 2)
+        XCTAssertEqual(transports[0].stops, transports[1].stops)
+        XCTAssertGreaterThan(try XCTUnwrap(transports[0].stops.first), queuedStart)
+        transports.forEach { $0.onDrain = nil }
+    }
+
+    @MainActor
+    func testRefreshRetriesDiscoveryAfterInitializationFailure() {
+        let discovery = StubDiscovery()
+        var attempts = 0
+        let model = AppModel(defaults: UserDefaults(suiteName: UUID().uuidString)!, discoveryFactory: {
+            attempts += 1
+            if attempts == 1 { throw MIDIError(operation: "Test discovery", status: -1) }
+            return discovery
+        }, factory: { FakeTransport() })
+        defer { model.shutdown() }
+        XCTAssertNotNil(model.error)
+        model.refreshOutputs()
+        discovery.onSetupChange?()
+        XCTAssertNil(model.error)
+        XCTAssertEqual(model.devices.map(\.id), [1])
+        XCTAssertEqual(attempts, 2)
+    }
+}
+
+private final class StubDiscovery: MIDIDiscovery {
+    var onSetupChange: (() -> Void)?
+    func outputs() -> [MIDIOutput] { [MIDIOutput(id: 1, endpoint: 1, name: "Test")] }
+    func shutdown() {}
 }

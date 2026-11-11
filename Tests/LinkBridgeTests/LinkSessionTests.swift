@@ -79,12 +79,16 @@ extension LinkSessionTests {
         XCTAssertTrue(started)
         let playing = session.state(at: LinkSession.hostTime())
         XCTAssertTrue(playing.playing)
+        XCTAssertTrue(playing.callbackPlaying)
         session.setTempo(170, at: LinkSession.hostTime())
         try await Task.sleep(nanoseconds: 30_000_000)
         XCTAssertEqual(session.state(at: LinkSession.hostTime()).transportRevision, playing.transportRevision)
         session.setPlaying(false, at: LinkSession.hostTime())
         let stopped = await waitForRevision(after: playing.transportRevision)
         XCTAssertTrue(stopped)
-        XCTAssertFalse(session.state(at: LinkSession.hostTime()).playing)
+        let final = session.state(at: LinkSession.hostTime())
+        XCTAssertFalse(final.playing)
+        XCTAssertFalse(final.callbackPlaying)
+        XCTAssertEqual(final.transportRevision - initial, 2)
     }
 }

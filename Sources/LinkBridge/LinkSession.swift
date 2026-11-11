@@ -11,10 +11,12 @@ public struct LinkState {
     public let playing: Bool
     public let transportTime: Double
     public let transportRevision: UInt64
-    public init(timeline: BeatTimeline, sessionBPM: Double, tempoScale: Double, peers: Int, playing: Bool, transportTime: Double, transportRevision: UInt64 = 0) {
+    public let callbackPlaying: Bool
+    public init(timeline: BeatTimeline, sessionBPM: Double, tempoScale: Double, peers: Int, playing: Bool, transportTime: Double, transportRevision: UInt64 = 0, callbackPlaying: Bool? = nil) {
         self.timeline = timeline; self.sessionBPM = sessionBPM; self.tempoScale = tempoScale
         self.peers = peers; self.playing = playing; self.transportTime = transportTime
         self.transportRevision = transportRevision
+        self.callbackPlaying = callbackPlaying ?? playing
     }
 }
 
@@ -47,7 +49,7 @@ public final class LinkSession: LinkControlling {
                                     secondsPerBeat: native.seconds_per_beat / scale, bpm: native.tempo * scale, beatScale: scale)
         return LinkState(timeline: timeline, sessionBPM: native.tempo, tempoScale: scale,
                          peers: Int(native.peers), playing: native.playing, transportTime: native.transport_time,
-                         transportRevision: native.transport_revision)
+                         transportRevision: native.transport_revision, callbackPlaying: native.callback_playing)
     }
     /// Octave-fold unusual session tempos instead of silently clipping and losing phase.
     public static func tempoScale(for bpm: Double) -> Double {

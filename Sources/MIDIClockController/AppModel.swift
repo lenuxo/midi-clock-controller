@@ -14,6 +14,7 @@ protocol DeviceTransport: AnyObject {
     func scheduleBPM(_ bpm: Double, at deadline: Double)
     func setBeatClock(_ clock: BeatClock?, quantum: Double)
     var waitingForBeat: Bool { get }
+    var lastQueuedEventTime: Double { get }
     func drainPendingStop()
     func scheduleStop(at deadline: Double) throws
     func stop() throws
@@ -22,8 +23,16 @@ protocol DeviceTransport: AnyObject {
 extension DeviceTransport {
     func setBeatClock(_ clock: BeatClock?, quantum: Double) {}
     var waitingForBeat: Bool { false }
+    var lastQueuedEventTime: Double { 0 }
 }
 extension MIDIClockEngine: DeviceTransport {}
+
+protocol MIDIDiscovery: AnyObject {
+    var onSetupChange: (() -> Void)? { get set }
+    func outputs() -> [MIDIOutput]
+    func shutdown()
+}
+extension MIDIClockEngine: MIDIDiscovery {}
 
 enum PlaybackAction {
     case start, resume, stop
@@ -42,7 +51,7 @@ final class DeviceControl: ObservableObject, Identifiable {
     @Published private(set) var running = false
     @Published private(set) var canContinue = false
     @Published private(set) var bpm: Double
-    @Published var bpmText: String
+    @Published private(set) var bpmText: String
     @Published var error: String?
     private var engine: DeviceTransport?
     private var beatClock: BeatClock?
@@ -86,8 +95,8 @@ final class DeviceControl: ObservableObject, Identifiable {
     }
 
     @discardableResult
-    func commitBPM() -> Bool {
-        guard let value = Self.parseBPM(bpmText) else {
+    func commitBPM(_ text: String) -> Bool {
+        guard let value = Self.parseBPM(text) else {
             error = L("请输入 20–300 之间的 BPM。")
             return false
         }
@@ -132,7 +141,7 @@ final class DeviceControl: ObservableObject, Identifiable {
     }
 
     private func begin(at deadline: Double?, continuing: Bool) {
-        guard online, !running, commitBPM(), prepare() else { return }
+        guard online, !running, prepare() else { return }
         do {
             if continuing { try engine?.resume(outputs: [output], bpm: bpm, scheduledAt: deadline) }
             else { try engine?.start(outputs: [output], bpm: bpm, scheduledAt: deadline) }
@@ -170,6 +179,9 @@ final class DeviceControl: ObservableObject, Identifiable {
         online = true
     }
 
+    var lastQueuedEventTime: Double { engine?.lastQueuedEventTime ?? 0 }
+    func drainPendingStop() { engine?.drainPendingStop() }
+
     func shutdown() { stop(); engine?.shutdown() }
 }
 
@@ -177,8 +189,11 @@ final class DeviceControl: ObservableObject, Identifiable {
 final class AppModel: ObservableObject {
     @Published private(set) var devices: [DeviceControl] = []
     @Published private(set) var masterBPM = 120.0
-    @Published var masterBPMText = "120.0"
-    @Published private(set) var masterRunning = false
+    @Published private(set) var masterBPMText = "120.0"
+    @Published private var linkTransportRunning = false
+    var masterRunning: Bool {
+        followers.contains(where: \.running) || (linkEnabled && followers.isEmpty && linkTransportRunning)
+    }
     @Published var notice: String?
     @Published var error: String?
     @Published private(set) var linkEnabled = false
@@ -192,8 +207,10 @@ final class AppModel: ObservableObject {
     private let linkFactory: (Double) -> LinkControlling?
     private var linkPoll: AnyCancellable?
     private var lastLinkTransport: (playing: Bool, revision: UInt64)?
+    private var localLinkCommand: (playing: Bool, time: Double)?
     private var reconcileLocalLinkTransport = false
-    private var discovery: MIDIClockEngine?
+    private var discovery: MIDIDiscovery?
+    private let discoveryFactory: (() throws -> MIDIDiscovery)?
     private var subscriptions: [Int32: AnyCancellable] = [:]
     private var sleepObserver: NSObjectProtocol?
     private var disconnectedRemovals: [Int32: (token: UUID, cancel: () -> Void)] = [:]
@@ -212,9 +229,11 @@ final class AppModel: ObservableObject {
     private let factory: () throws -> DeviceTransport
 
     init(defaults: UserDefaults = .standard, discover: Bool = true,
+         discoveryFactory: @escaping () throws -> MIDIDiscovery = { try MIDIClockEngine() },
          linkFactory: @escaping (Double) -> LinkControlling? = { LinkSession(bpm: $0) },
          scheduleRemoval: ((TimeInterval, @escaping @MainActor () -> Void) -> () -> Void)? = nil,
          factory: @escaping () throws -> DeviceTransport = { try MIDIClockEngine() }) {
+        self.discoveryFactory = discover ? discoveryFactory : nil
         self.defaults = defaults
         self.linkFactory = linkFactory
         self.factory = factory
@@ -222,12 +241,7 @@ final class AppModel: ObservableObject {
         masterBPM = ClockSchedule.clamp(defaults.object(forKey: "bpm") as? Double ?? 120)
         masterBPMText = String(format: "%.1f", masterBPM)
         guard discover else { return }
-        do {
-            let discovery = try MIDIClockEngine()
-            self.discovery = discovery
-            discovery.onSetupChange = { [weak self] in self?.refreshOutputs() }
-            refreshOutputs()
-        } catch { self.error = error.localizedDescription }
+        refreshOutputs()
         sleepObserver = NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.willSleepNotification, object: nil, queue: .main
         ) { [weak self] _ in
@@ -246,7 +260,7 @@ final class AppModel: ObservableObject {
 
     var resumableFollowers: [DeviceControl] { pendingFollowers.filter(\.canContinue) }
     var playbackAction: PlaybackAction {
-        PlaybackAction(running: (linkEnabled && masterRunning) || followers.contains(where: \.running), canContinue: !resumableFollowers.isEmpty)
+        PlaybackAction(running: masterRunning, canContinue: !resumableFollowers.isEmpty)
     }
 
     func performPlaybackAction() {
@@ -259,23 +273,25 @@ final class AppModel: ObservableObject {
 
     func setFollowing(_ device: DeviceControl, _ following: Bool) {
         guard device.followsMaster != following else { return }
+        let wasRunning = masterRunning
         device.followsMaster = following
         device.setBeatClock(following && linkEnabled ? linkSession : nil, quantum: Double(linkQuantum))
         notice = nil
         // Detaching preserves its current tempo and transport, without interrupting sound.
         guard following else { device.setBPM(device.bpm); return }
         device.setBPM(masterBPM)
-        if masterRunning { device.start(at: MIDIClockEngine.batchDeadline()) }
+        if wasRunning { device.start(at: MIDIClockEngine.batchDeadline()) }
         else { device.stop() }
     }
 
     @discardableResult
-    func commitMasterBPM() -> Bool {
-        guard let value = DeviceControl.parseBPM(masterBPMText) else {
+    func commitMasterBPM(_ text: String) -> Bool {
+        guard let value = DeviceControl.parseBPM(text) else {
             error = L("主控 BPM 请输入 20–300 之间的数值。")
             return false
         }
         if !linkEnabled || abs(value - masterBPM) > 0.051 { setMasterBPM(value) }
+        error = nil
         return true
     }
 
@@ -309,7 +325,7 @@ final class AppModel: ObservableObject {
                 error = L("无法启用 Link，请检查本地网络权限。"); return
             }
             linkSession = session
-            masterRunning = false
+            linkTransportRunning = false
             linkEnabled = true
             linkStartStopSync = false
             session.setTransportSync(false)
@@ -339,6 +355,7 @@ final class AppModel: ObservableObject {
             let state = session.state(at: LinkSession.hostTime())
             lastLinkTransport = (state.playing, state.transportRevision)
             reconcileLocalLinkTransport = false
+            localLinkCommand = nil
             session.setTransportSync(value)
         }
         linkStartStopSync = value
@@ -370,7 +387,9 @@ final class AppModel: ObservableObject {
         // must be observed, not consumed as the acknowledgement of our command.
         lastLinkTransport = (playing, baseline.transportRevision)
         reconcileLocalLinkTransport = true
-        session.setPlaying(playing, at: LinkSession.hostTime())
+        let time = LinkSession.hostTime()
+        localLinkCommand = (playing, time)
+        session.setPlaying(playing, at: time)
     }
 
     private func updateLinkWaiting() { linkWaiting = followers.contains(where: \.waitingForBeat) }
@@ -381,33 +400,67 @@ final class AppModel: ObservableObject {
         let state = session.state(at: LinkSession.hostTime())
         adoptLinkState(state)
         updateLinkWaiting()
-        if !followers.isEmpty && !followers.contains(where: \.running) { masterRunning = false }
-        let observedCommand = lastLinkTransport.map { $0.revision != state.transportRevision } ?? false
-        let shouldObserve = observedCommand || reconcileLocalLinkTransport
-        let changed = shouldObserve && (lastLinkTransport?.playing != state.playing)
-        // Do not consume timeline remapping as a new command or overwrite a
-        // local intention while its asynchronous SDK callback is still pending.
-        if shouldObserve { lastLinkTransport = (state.playing, state.transportRevision) }
+        if !followers.isEmpty && !followers.contains(where: \.running) { linkTransportRunning = false }
+        guard let previous = lastLinkTransport else { return }
+        let count = state.transportRevision &- previous.revision
+        // A local Play/Stop pair can both be committed before the SDK reports
+        // either callback. Its microsecond timestamp identifies our own write
+        // only for echo suppression; timeline remapping never triggers playback.
+        if let command = localLinkCommand, command.playing == state.playing,
+           abs(command.time - state.transportTime) <= 0.00000051 {
+            lastLinkTransport = (command.playing, state.transportRevision)
+            reconcileLocalLinkTransport = false
+            return
+        }
+        localLinkCommand = nil
+        var playing = previous.playing
+        // The bridge increments only when the callback value changes. The
+        // revision delta and final callback value encode the whole alternating
+        // sequence, even when the current session snapshot is ahead of callbacks.
+        for remaining in (0..<count).reversed() {
+            let command = remaining.isMultiple(of: 2) ? state.callbackPlaying : !state.callbackPlaying
+            if linkStartStopSync && playing != command { applyRemoteTransport(command) }
+            playing = command
+        }
+        if reconcileLocalLinkTransport && state.playing != playing {
+            if linkStartStopSync { applyRemoteTransport(state.playing) }
+            playing = state.playing
+        }
+        lastLinkTransport = (playing, state.transportRevision)
         reconcileLocalLinkTransport = false
-        guard linkStartStopSync, changed else { return }
-        if state.playing {
+    }
+
+    private func applyRemoteTransport(_ playing: Bool) {
+        if playing {
             // Link has no Continue message: preserve eligible local positions, start the rest.
+            let targets = pendingFollowers.filter { $0.prepare() }
             let deadline = MIDIClockEngine.batchDeadline()
-            for device in pendingFollowers {
+            for device in targets {
                 if device.canContinue { device.resume(at: deadline) }
                 else { device.start(at: deadline) }
             }
-            masterRunning = followers.contains(where: \.running) || followers.isEmpty
+            linkTransportRunning = followers.contains(where: \.running) || followers.isEmpty
             updateLinkWaiting()
         } else {
             let deadline = MIDIClockEngine.batchDeadline()
             followers.forEach { $0.stop(at: deadline) }
-            masterRunning = false
+            linkTransportRunning = false
             linkWaiting = false
         }
     }
 
-    func refreshOutputs() { reconcile(discovery?.outputs() ?? []) }
+    func refreshOutputs() {
+        guard let discoveryFactory else { return }
+        do {
+            if discovery == nil {
+                let client = try discoveryFactory()
+                client.onSetupChange = { [weak self] in self?.refreshOutputs() }
+                discovery = client
+                error = nil
+            }
+            if let discovery { reconcile(discovery.outputs()) }
+        } catch { self.error = error.localizedDescription }
+    }
 
     func reconcile(_ outputs: [MIDIOutput]) {
         for device in devices {
@@ -446,11 +499,11 @@ final class AppModel: ObservableObject {
     }
 
     func startMaster() {
-        guard (!followers.isEmpty || linkEnabled), commitMasterBPM() else { return }
+        guard !followers.isEmpty || linkEnabled else { return }
         pendingFollowers.forEach { _ = $0.prepare() }
         let deadline = MIDIClockEngine.batchDeadline()
         pendingFollowers.forEach { $0.start(at: deadline) }
-        masterRunning = followers.contains(where: \.running) || (linkEnabled && followers.isEmpty)
+        linkTransportRunning = linkEnabled && (followers.isEmpty || followers.contains(where: \.running))
         publishLinkTransport(true)
         updateLinkWaiting()
         notice = pendingFollowers.isEmpty ? nil : L("部分跟随设备未能开始，请查看设备行中的提示。")
@@ -458,11 +511,11 @@ final class AppModel: ObservableObject {
 
     func continueMaster() {
         let targets = pendingFollowers.filter(\.canContinue)
-        guard !targets.isEmpty, commitMasterBPM() else { return }
+        guard !targets.isEmpty else { return }
         targets.forEach { _ = $0.prepare() }
         let deadline = MIDIClockEngine.batchDeadline()
         targets.forEach { $0.resume(at: deadline) }
-        masterRunning = followers.contains(where: \.running) || (linkEnabled && followers.isEmpty)
+        linkTransportRunning = linkEnabled && (followers.isEmpty || followers.contains(where: \.running))
         publishLinkTransport(true)
         updateLinkWaiting()
         notice = pendingFollowers.isEmpty ? nil : L("部分设备无法继续；请查看设备提示，或停止后从头开始。")
@@ -472,7 +525,7 @@ final class AppModel: ObservableObject {
         publishLinkTransport(false)
         let deadline = MIDIClockEngine.batchDeadline()
         followers.forEach { $0.stop(at: deadline) }
-        masterRunning = false
+        linkTransportRunning = false
         linkWaiting = false
         notice = nil
     }
@@ -482,8 +535,11 @@ final class AppModel: ObservableObject {
         setLinkStartStopSync(false)
         linkWaiting = false
         // Short emergency action, regardless of current selection.
-        devices.forEach { $0.stop() }
-        masterRunning = false
+        let latestEvent = devices.map(\.lastQueuedEventTime).max() ?? 0
+        let deadline = max(latestEvent + 0.001, MIDIClockEngine.emergencyStopDeadline())
+        devices.forEach { $0.stop(at: deadline) }
+        devices.forEach { $0.drainPendingStop() }
+        linkTransportRunning = false
         notice = linkEnabled ? L("本机 MIDI 已全部停止；Link 启停联动已关闭。") : L("所有设备已停止。")
     }
 

@@ -227,7 +227,7 @@ struct ContentView: View {
                 Text(L("%1$@ 台跟随设备 · %2$@ 台独立", String(model.followers.count), String(model.independentCount)))
                     .font(.system(size: 11)).foregroundStyle(palette.secondary)
             }
-            TempoControl(text: $model.masterBPMText, label: L("主控速度 BPM"), palette: palette, expanded: true,
+            TempoControl(text: model.masterBPMText, label: L("主控速度 BPM"), palette: palette, expanded: true,
                          commit: model.commitMasterBPM, step: { model.setMasterBPM(model.masterBPM + $0) })
             transport
             if model.playbackAction == .resume && model.resumableFollowers.count < model.followers.count {
@@ -322,7 +322,7 @@ struct DeviceRow: View {
             }
             if !device.followsMaster {
                 VStack(spacing: 10) {
-                    TempoControl(text: $device.bpmText, label: L("%1$@ 独立 BPM", String(device.output.name)), palette: palette, small: true, expanded: true, commit: device.commitBPM,
+                    TempoControl(text: device.bpmText, label: L("%1$@ 独立 BPM", String(device.output.name)), palette: palette, small: true, expanded: true, commit: device.commitBPM,
                                  step: { device.setBPM(device.bpm + $0) })
                     PlaybackControls(action: device.playbackAction, palette: palette,
                                      perform: device.performPlaybackAction, restart: { device.start() })
