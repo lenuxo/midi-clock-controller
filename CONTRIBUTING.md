@@ -27,3 +27,5 @@ Link 真实网络测试默认跳过。设置 `REQUIRE_LINK_NETWORK_TESTS=1` 可�
 第三方源码版本及必要性记录在 `Sources/CLink/vendor/README.md`；维护时保留上游授权；项目采用 GPL-2.0-or-later，发布时同时提供完整对应源码包及构建脚本。
 
 `dist/` 中的应用仅作本地验证，使用 ad-hoc 签名。上传源码不代表应用已经完成公开分发签名或公证。
+
+应用内更新使用固定版本 Sparkle 2.10.1，首次构建需联网下载官方框架。签名密钥、公钥与发布清单的维护见 [更新发布指南](docs/updates.md)。

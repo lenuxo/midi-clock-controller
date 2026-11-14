@@ -6,6 +6,7 @@ let package = Package(
     defaultLocalization: "zh-Hans",
     platforms: [.macOS(.v13)],
     products: [.executable(name: "MIDIClockController", targets: ["MIDIClockController"])],
+    dependencies: [.package(url: "https://github.com/sparkle-project/Sparkle", exact: "2.10.1")],
     targets: [
         .target(name: "AppLocalization", resources: [.process("Resources")]),
         .target(name: "CLink", exclude: ["vendor/README.md", "vendor/link/LICENSE.md", "vendor/link/GNU-GPL-v2.0.md", "vendor/asio/LICENSE_1_0.txt", "vendor/asio/COPYING"],
@@ -16,7 +17,7 @@ let package = Package(
                               .define("ASIO_VERSION_NAMESPACE", to: "midi_clock_link_asio")]),
         .target(name: "ClockCore", dependencies: ["AppLocalization"]),
         .target(name: "LinkBridge", dependencies: ["CLink", "ClockCore"]),
-        .executableTarget(name: "MIDIClockController", dependencies: ["ClockCore", "AppLocalization", "LinkBridge"],
+        .executableTarget(name: "MIDIClockController", dependencies: ["ClockCore", "AppLocalization", "LinkBridge", "Sparkle"],
                           resources: [.copy("Resources/Fonts")]),
         .testTarget(name: "LinkBridgeTests", dependencies: ["LinkBridge", "ClockCore"]),
         .testTarget(name: "ClockCoreTests", dependencies: ["ClockCore", "LinkBridge"]),

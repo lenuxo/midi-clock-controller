@@ -5,7 +5,9 @@ export CLANG_MODULE_CACHE_PATH="$PWD/.build/clang-cache"
 swift build -c release --disable-sandbox
 bin_dir=$(swift build -c release --show-bin-path --disable-sandbox)
 app="$PWD/dist/MIDI Clock Controller.app"
-mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
+mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources" "$app/Contents/Frameworks"
+sparkle="$PWD/.build/artifacts/sparkle/Sparkle"
+ditto "$sparkle/Sparkle.xcframework/macos-arm64_x86_64/Sparkle.framework" "$app/Contents/Frameworks/Sparkle.framework"
 cp -R "$bin_dir/MIDIClockController_AppLocalization.bundle" "$app/Contents/Resources/"
 cp -R "$bin_dir/MIDIClockController_MIDIClockController.bundle" "$app/Contents/Resources/"
 for language in zh-Hans en; do
@@ -14,6 +16,7 @@ for language in zh-Hans en; do
     cp "Resources/$language.lproj/InfoPlist.strings" "$app/Contents/Resources/$language.lproj/"
 done
 mkdir -p "$app/Contents/Resources/ThirdPartyLicenses"
+cp "$sparkle/LICENSE" "$app/Contents/Resources/ThirdPartyLicenses/Sparkle-LICENSE.txt"
 cp LICENSE "$app/Contents/Resources/ThirdPartyLicenses/MIDI-Clock-Controller-LICENSE.txt"
 cp COPYING.md "$app/Contents/Resources/ThirdPartyLicenses/MIDI-Clock-Controller-COPYING.md"
 cp Sources/CLink/vendor/link/LICENSE.md "$app/Contents/Resources/ThirdPartyLicenses/Ableton-Link-LICENSE.md"
@@ -42,12 +45,24 @@ cat > "$app/Contents/Info.plist" <<'PLIST'
 <key>CFBundlePackageType</key><string>APPL</string>
 <key>CFBundleDevelopmentRegion</key><string>zh-Hans</string>
 <key>CFBundleLocalizations</key><array><string>zh-Hans</string><string>en</string></array>
-<key>CFBundleShortVersionString</key><string>0.1.8</string>
-<key>CFBundleVersion</key><string>9</string>
+<key>CFBundleShortVersionString</key><string>0.1.9</string>
+<key>CFBundleVersion</key><string>10</string>
 <key>LSMinimumSystemVersion</key><string>13.0</string>
 <key>NSLocalNetworkUsageDescription</key><string>Discover Ableton Link peers and share musical tempo and beat timing on your local network.</string>
 <key>NSHighResolutionCapable</key><true/>
 </dict></plist>
 PLIST
+/usr/libexec/PlistBuddy -c "Add :SUPublicEDKey string $(cat Resources/UpdatePublicKey.txt)" "$app/Contents/Info.plist"
+/usr/libexec/PlistBuddy -c 'Add :SUFeedURL string https://github.com/lenuxo/midi-clock-controller/releases/latest/download/appcast.xml' "$app/Contents/Info.plist"
+/usr/libexec/PlistBuddy -c 'Add :SUEnableAutomaticChecks bool false' "$app/Contents/Info.plist"
+/usr/libexec/PlistBuddy -c 'Add :SUAllowsAutomaticUpdates bool false' "$app/Contents/Info.plist"
+/usr/libexec/PlistBuddy -c 'Add :SUAutomaticallyUpdate bool false' "$app/Contents/Info.plist"
+/usr/libexec/PlistBuddy -c 'Add :SUEnableSystemProfiling bool false' "$app/Contents/Info.plist"
+/usr/libexec/PlistBuddy -c 'Add :SUVerifyUpdateBeforeExtraction bool true' "$app/Contents/Info.plist"
+/usr/libexec/PlistBuddy -c 'Add :SURequireSignedFeed bool true' "$app/Contents/Info.plist"
+if ! otool -l "$app/Contents/MacOS/MIDIClockController" | rg -q '@executable_path/../Frameworks'; then
+    install_name_tool -add_rpath @executable_path/../Frameworks "$app/Contents/MacOS/MIDIClockController"
+fi
 codesign --force --sign - "$app"
+codesign --verify --deep --strict "$app"
 echo "Built: $app"

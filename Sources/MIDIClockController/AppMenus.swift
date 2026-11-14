@@ -18,7 +18,7 @@ enum AppAbout {
                 .paragraphStyle: paragraph
             ]
         ))
-        credits.append(NSAttributedString(string: "\n\nAbleton Link 4.1.1 · Asio · DSEG7 Classic\n",
+        credits.append(NSAttributedString(string: "\n\nAbleton Link 4.1.1 · Asio · DSEG7 Classic · Sparkle\n",
                                          attributes: [.font: NSFont.systemFont(ofSize: 10), .paragraphStyle: paragraph]))
         let bundledLicenses = Bundle.main.resourceURL?.appendingPathComponent("ThirdPartyLicenses", isDirectory: true)
         let licenseURL = bundledLicenses.flatMap { FileManager.default.fileExists(atPath: $0.path) ? $0 : nil }
@@ -33,6 +33,7 @@ enum AppAbout {
 struct AppMenus: Commands {
     @ObservedObject var model: AppModel
     @Binding var showingHelp: Bool
+    @ObservedObject var updateChecker: UpdateChecker
     @AppStorage("appearance") private var appearance = "system"
     @AppStorage("appLanguage") private var language = AppLanguage.current
     @AppStorage("interfaceZoom") private var zoomPercent = 100
@@ -42,6 +43,9 @@ struct AppMenus: Commands {
             Button(L("关于 MIDI Clock"), action: AppAbout.show)
         }
         CommandGroup(after: .appInfo) {
+            Button(L(updateChecker.isChecking ? "正在检查更新…" : "检查更新…"), action: updateChecker.check)
+                .disabled(updateChecker.isChecking || updateChecker.isPresenting || showingHelp)
+            Divider()
             Picker("语言 / Language", selection: Binding(
                 get: { language },
                 set: { selected in
@@ -102,7 +106,7 @@ struct AppMenus: Commands {
         }
         CommandGroup(replacing: .help) {
             Button(L("MIDI Clock 使用指南…")) { showingHelp = true }
-                .disabled(showingHelp)
+                .disabled(showingHelp || updateChecker.isChecking || updateChecker.isPresenting)
         }
     }
 }

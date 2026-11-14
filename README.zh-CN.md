@@ -27,6 +27,8 @@
 
 应用目前采用 ad-hoc 签名，尚未经过 Apple 公证。如被 macOS 拦截，请按发布说明中的首次打开步骤操作。「继续播放」保留各设备自己的停止位置，不会对齐不同设备的乐曲位置。
 
+在应用菜单选择「检查更新…」，可查询 GitHub 最新正式版本。提供签名更新清单的新版本可通过 Sparkle 在应用内下载、安装；点击「安装并重新启动」后停止本机 MIDI 并重启应用。较早版本提供 GitHub 下载页入口；仅在手动点击时检查。
+
 ## 从源码构建
 
 需要 Swift 5.9+、macOS SDK 和 C++17 支持。内置 Link SDK 的官方验证环境为 Xcode 16.2 或更新版本。
@@ -36,9 +38,11 @@ zsh scripts/build-app.sh
 open "dist/MIDI Clock Controller.app"
 ```
 
-运行 `zsh scripts/build-dmg.sh` 可将构建好的应用打包为 DMG，输出位于 `dist/release/`。
+首次构建会下载固定版本的 Sparkle 2.10.1 依赖。运行 `zsh scripts/build-dmg.sh` 可将构建好的应用打包为 DMG，输出位于 `dist/release/`。
 
 测试与开发流程见[贡献指南](CONTRIBUTING.md)，界面细节见[设计文档](DESIGN.md)。
+
+应用内更新的签名与发布步骤见[更新发布指南](docs/updates.md)。Sparkle 负责下载、验签、安装和重启，其授权与附带声明随应用分发。
 
 ## 致谢
 

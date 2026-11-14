@@ -7,6 +7,7 @@ import ClockCore
 struct MIDIClockApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
     @StateObject private var model = MIDIClockApp.makeAppModel()
+    @StateObject private var updateChecker = UpdateChecker()
     @State private var showingHelp = false
     @MainActor private static func makeAppModel() -> AppModel {
         #if DEBUG
@@ -16,13 +17,16 @@ struct MIDIClockApp: App {
     }
     var body: some Scene {
         Window(L("app.name"), id: "main") {
-            ContentView(model: model).onAppear { delegate.model = model }
+            ContentView(model: model).onAppear { [model] in
+                delegate.model = model
+                updateChecker.beforeInstallation = { [weak model] in model?.stopAll() }
+            }
                 .sheet(isPresented: $showingHelp) { QuickHelpView(model: model, close: { showingHelp = false }) }
         }
         .defaultSize(width: 380, height: 560)
         .windowToolbarStyle(.unifiedCompact(showsTitle: false))
         .windowResizability(.contentSize)
-        .commands { AppMenus(model: model, showingHelp: $showingHelp) }
+        .commands { AppMenus(model: model, showingHelp: $showingHelp, updateChecker: updateChecker) }
     }
 }
 

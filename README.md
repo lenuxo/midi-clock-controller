@@ -27,6 +27,8 @@ Stop the master and click **Join** in the Ableton Link card. **Transport → Loc
 
 The app is currently ad-hoc signed and not notarized. If macOS blocks it, follow the first-launch instructions in the release notes. Continue preserves each device’s own position; it does not align song positions across devices.
 
+Use **Check for Updates…** in the app menu to check the latest stable GitHub Release. Releases with a signed update feed can be downloaded and installed in the app with Sparkle. Choosing Install and Relaunch stops local MIDI and restarts the app. Older releases offer their GitHub download page. Checks run only when requested.
+
 ## Build from source
 
 Requires Swift 5.9+ with the macOS SDK and C++17 support. The bundled Link SDK is officially verified with Xcode 16.2 or later.
@@ -36,9 +38,11 @@ zsh scripts/build-app.sh
 open "dist/MIDI Clock Controller.app"
 ```
 
-To package the built app as a DMG, run `zsh scripts/build-dmg.sh`. Output is saved in `dist/release/`.
+The first build downloads the pinned Sparkle 2.10.1 dependency. To package the built app as a DMG, run `zsh scripts/build-dmg.sh`. Output is saved in `dist/release/`. To prepare signed in-app updates, see [the update publishing guide](docs/updates.md).
 
 See [Contributing](CONTRIBUTING.md) for tests and development workflow, and [Design](DESIGN.md) for interface details. These developer documents are currently in Chinese.
+
+Sparkle provides the update downloader, signature verification, installer, and relaunch flow. Its license and bundled notices ship with the app.
 
 ## Credits
 
