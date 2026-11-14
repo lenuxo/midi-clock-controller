@@ -67,7 +67,7 @@ struct LinkControls: View {
                     }.frame(maxWidth: .infinity)
                         .help(L("开始、继续和从头开始对齐此边界；停止不等待拍点。更改前请先停止主控。"))
                 }
-                Text(model.linkStartStopSync ? L("与同样开启联动的参与者互相启停；独立设备除外。")
+                Text(model.linkStartStopSync ? L("与同样开启联动的参与者互相启停；独立设备可通过「随主控启动」加入开始。")
                      : L("仅由本机控制 MIDI 启停，不跟随远端播放操作。"))
                     .font(.system(size: 10)).foregroundStyle(palette.secondary)
                     .fixedSize(horizontal: false, vertical: true)

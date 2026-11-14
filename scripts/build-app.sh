@@ -45,8 +45,8 @@ cat > "$app/Contents/Info.plist" <<'PLIST'
 <key>CFBundlePackageType</key><string>APPL</string>
 <key>CFBundleDevelopmentRegion</key><string>zh-Hans</string>
 <key>CFBundleLocalizations</key><array><string>zh-Hans</string><string>en</string></array>
-<key>CFBundleShortVersionString</key><string>0.1.9</string>
-<key>CFBundleVersion</key><string>10</string>
+<key>CFBundleShortVersionString</key><string>0.1.10</string>
+<key>CFBundleVersion</key><string>11</string>
 <key>LSMinimumSystemVersion</key><string>13.0</string>
 <key>NSLocalNetworkUsageDescription</key><string>Discover Ableton Link peers and share musical tempo and beat timing on your local network.</string>
 <key>NSHighResolutionCapable</key><true/>

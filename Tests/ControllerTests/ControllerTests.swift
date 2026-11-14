@@ -344,3 +344,81 @@ private final class StubDiscovery: MIDIDiscovery {
     func outputs() -> [MIDIOutput] { [MIDIOutput(id: 1, endpoint: 1, name: "Test")] }
     func shutdown() {}
 }
+
+extension ControllerTests {
+    @MainActor
+    func testIndependentStartOptInPreservesTempoAndMasterStopScope() throws {
+        var transports: [FakeTransport] = []
+        let model = AppModel(defaults: UserDefaults(suiteName: UUID().uuidString)!, discover: false, factory: {
+            let transport = FakeTransport(); transports.append(transport); return transport
+        })
+        defer { model.shutdown() }
+        model.reconcile((1...3).map { MIDIOutput(id: Int32($0), endpoint: UInt32($0), name: "Test") })
+        let linked = model.devices[1], manual = model.devices[2]
+        model.setFollowing(linked, false)
+        model.setFollowing(manual, false)
+        linked.setBPM(90)
+        manual.setBPM(75)
+        XCTAssertFalse(linked.startsWithMaster)
+        linked.startsWithMaster = true
+        model.startMaster()
+        XCTAssertEqual(model.playingCount, 2)
+        XCTAssertEqual(linked.bpm, 90)
+        XCTAssertFalse(manual.running)
+        XCTAssertEqual(transports[0].starts.first, transports[1].starts.first)
+        model.startMaster()
+        XCTAssertEqual(transports[1].starts.count, 1, "Running devices must not restart")
+        model.stopMaster()
+        XCTAssertTrue(linked.running)
+        XCTAssertFalse(model.devices[0].running)
+        model.stopAll()
+        XCTAssertEqual(model.playingCount, 0)
+        model.continueMaster()
+        XCTAssertEqual(transports[0].resumes.first, transports[1].resumes.first)
+        XCTAssertEqual(linked.bpm, 90)
+        XCTAssertFalse(manual.running)
+    }
+
+    @MainActor
+    func testEnablingIndependentStartIsDeferredAndReconnectDoesNotStart() {
+        let transport = FakeTransport()
+        let model = AppModel(defaults: UserDefaults(suiteName: UUID().uuidString)!, discover: false, factory: { transport })
+        defer { model.shutdown() }
+        let output = MIDIOutput(id: 1, endpoint: 1, name: "A")
+        model.reconcile([output])
+        let device = model.devices[0]
+        model.setFollowing(device, false)
+        XCTAssertFalse(model.canStartMaster)
+        device.startsWithMaster = true
+        XCTAssertTrue(model.canStartMaster)
+        XCTAssertFalse(device.running)
+        model.startMaster()
+        XCTAssertTrue(device.running, "Master launch also works with only independent devices")
+        model.reconcile([])
+        model.reconcile([output])
+        XCTAssertFalse(device.running)
+        model.startMaster()
+        XCTAssertTrue(device.running)
+        XCTAssertEqual(transport.starts.count, 2)
+    }
+
+    @MainActor
+    func testIndependentLaunchFailureDoesNotPreventOtherDevicesStarting() {
+        var created = 0
+        let model = AppModel(defaults: UserDefaults(suiteName: UUID().uuidString)!, discover: false, factory: {
+            created += 1
+            if created == 2 { throw MIDIError(operation: "Injected", status: -1) }
+            return FakeTransport()
+        })
+        defer { model.shutdown() }
+        model.reconcile([MIDIOutput(id: 1, endpoint: 1, name: "A"), MIDIOutput(id: 2, endpoint: 2, name: "B")])
+        let independent = model.devices[1]
+        model.setFollowing(independent, false)
+        independent.startsWithMaster = true
+        model.startMaster()
+        XCTAssertTrue(model.devices[0].running)
+        XCTAssertFalse(independent.running)
+        XCTAssertNotNil(independent.error)
+        XCTAssertNotNil(model.notice)
+    }
+}

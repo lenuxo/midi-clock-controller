@@ -12,6 +12,7 @@ protocol DeviceTransport: AnyObject {
     func resume(outputs: [MIDIOutput], bpm: Double, scheduledAt: Double?) throws
     func setBPM(_ bpm: Double)
     func scheduleBPM(_ bpm: Double, at deadline: Double)
+    func setLaunchClock(_ clock: BeatClock?, quantum: Double)
     func setBeatClock(_ clock: BeatClock?, quantum: Double)
     var waitingForBeat: Bool { get }
     var lastQueuedEventTime: Double { get }
@@ -21,6 +22,7 @@ protocol DeviceTransport: AnyObject {
     func shutdown()
 }
 extension DeviceTransport {
+    func setLaunchClock(_ clock: BeatClock?, quantum: Double) {}
     func setBeatClock(_ clock: BeatClock?, quantum: Double) {}
     var waitingForBeat: Bool { false }
     var lastQueuedEventTime: Double { 0 }
@@ -47,6 +49,7 @@ final class DeviceControl: ObservableObject, Identifiable {
     let id: Int32
     @Published private(set) var output: MIDIOutput
     @Published var followsMaster = true
+    @Published var startsWithMaster = false
     @Published private(set) var online = true
     @Published private(set) var running = false
     @Published private(set) var canContinue = false
@@ -131,17 +134,18 @@ final class DeviceControl: ObservableObject, Identifiable {
         } catch { self.error = error.localizedDescription; return false }
     }
 
-    func start(at deadline: Double? = nil) {
-        begin(at: deadline, continuing: false)
+    func start(at deadline: Double? = nil, launchClock: BeatClock? = nil, quantum: Double = 1) {
+        begin(at: deadline, continuing: false, launchClock: launchClock, quantum: quantum)
     }
 
-    func resume(at deadline: Double? = nil) {
+    func resume(at deadline: Double? = nil, launchClock: BeatClock? = nil, quantum: Double = 1) {
         guard canContinue else { return }
-        begin(at: deadline, continuing: true)
+        begin(at: deadline, continuing: true, launchClock: launchClock, quantum: quantum)
     }
 
-    private func begin(at deadline: Double?, continuing: Bool) {
+    private func begin(at deadline: Double?, continuing: Bool, launchClock: BeatClock?, quantum: Double) {
         guard online, !running, prepare() else { return }
+        engine?.setLaunchClock(launchClock, quantum: quantum)
         do {
             if continuing { try engine?.resume(outputs: [output], bpm: bpm, scheduledAt: deadline) }
             else { try engine?.start(outputs: [output], bpm: bpm, scheduledAt: deadline) }
@@ -192,7 +196,7 @@ final class AppModel: ObservableObject {
     @Published private(set) var masterBPMText = "120.0"
     @Published private var linkTransportRunning = false
     var masterRunning: Bool {
-        followers.contains(where: \.running) || (linkEnabled && followers.isEmpty && linkTransportRunning)
+        followers.contains(where: \.running) || !independentWaitingDevices.isEmpty || (linkEnabled && followers.isEmpty && linkTransportRunning)
     }
     @Published var notice: String?
     @Published var error: String?
@@ -257,6 +261,14 @@ final class AppModel: ObservableObject {
     var independentCount: Int { onlineDevices.filter { !$0.followsMaster }.count }
     var playingCount: Int { devices.filter { $0.running && !$0.waitingForBeat }.count }
     var pendingFollowers: [DeviceControl] { followers.filter { !$0.running } }
+
+    var independentStartTargets: [DeviceControl] {
+        onlineDevices.filter { !$0.followsMaster && $0.startsWithMaster && !$0.running }
+    }
+    private var independentWaitingDevices: [DeviceControl] {
+        onlineDevices.filter { !$0.followsMaster && $0.running && $0.waitingForBeat }
+    }
+    var canStartMaster: Bool { !followers.isEmpty || !independentStartTargets.isEmpty || linkEnabled }
 
     var resumableFollowers: [DeviceControl] { pendingFollowers.filter(\.canContinue) }
     var playbackAction: PlaybackAction {
@@ -362,7 +374,7 @@ final class AppModel: ObservableObject {
     }
 
     func setLinkQuantum(_ beats: Int) {
-        guard !followers.contains(where: \.running) else { return }
+        guard !masterRunning else { return }
         linkQuantum = beats == 4 ? 4 : 1
         if linkEnabled { devices.filter(\.followsMaster).forEach { $0.setBeatClock(linkSession, quantum: Double(linkQuantum)) } }
     }
@@ -392,7 +404,7 @@ final class AppModel: ObservableObject {
         session.setPlaying(playing, at: time)
     }
 
-    private func updateLinkWaiting() { linkWaiting = followers.contains(where: \.waitingForBeat) }
+    private func updateLinkWaiting() { linkWaiting = followers.contains(where: \.waitingForBeat) || !independentWaitingDevices.isEmpty }
 
     /// UI polling observes transport; MIDI pulses use fresh snapshots on their own queues.
     func pollLink() {
@@ -433,17 +445,12 @@ final class AppModel: ObservableObject {
     private func applyRemoteTransport(_ playing: Bool) {
         if playing {
             // Link has no Continue message: preserve eligible local positions, start the rest.
-            let targets = pendingFollowers.filter { $0.prepare() }
-            let deadline = MIDIClockEngine.batchDeadline()
-            for device in targets {
-                if device.canContinue { device.resume(at: deadline) }
-                else { device.start(at: deadline) }
-            }
+            launchDevices(pendingFollowers + independentStartTargets, continuing: true)
             linkTransportRunning = followers.contains(where: \.running) || followers.isEmpty
             updateLinkWaiting()
         } else {
             let deadline = MIDIClockEngine.batchDeadline()
-            followers.forEach { $0.stop(at: deadline) }
+            (followers + independentWaitingDevices).forEach { $0.stop(at: deadline) }
             linkTransportRunning = false
             linkWaiting = false
         }
@@ -498,33 +505,44 @@ final class AppModel: ObservableObject {
         devices.removeAll { $0.id == id }
     }
 
-    func startMaster() {
-        guard !followers.isEmpty || linkEnabled else { return }
-        pendingFollowers.forEach { _ = $0.prepare() }
+    private func launchDevices(_ targets: [DeviceControl], continuing: Bool) {
+        let ready = targets.filter { $0.prepare() }
         let deadline = MIDIClockEngine.batchDeadline()
-        pendingFollowers.forEach { $0.start(at: deadline) }
+        for device in ready {
+            let clock = !device.followsMaster && linkEnabled ? linkSession : nil
+            if continuing && device.canContinue {
+                device.resume(at: deadline, launchClock: clock, quantum: Double(linkQuantum))
+            } else {
+                device.start(at: deadline, launchClock: clock, quantum: Double(linkQuantum))
+            }
+        }
+    }
+
+    func startMaster() {
+        guard canStartMaster else { return }
+        let targets = pendingFollowers + independentStartTargets
+        launchDevices(targets, continuing: false)
         linkTransportRunning = linkEnabled && (followers.isEmpty || followers.contains(where: \.running))
         publishLinkTransport(true)
         updateLinkWaiting()
-        notice = pendingFollowers.isEmpty ? nil : L("部分跟随设备未能开始，请查看设备行中的提示。")
+        notice = targets.allSatisfy(\.running) ? nil : L("部分设备未能开始，请查看设备卡片中的提示。")
     }
 
     func continueMaster() {
-        let targets = pendingFollowers.filter(\.canContinue)
+        let targets = resumableFollowers + independentStartTargets
         guard !targets.isEmpty else { return }
-        targets.forEach { _ = $0.prepare() }
-        let deadline = MIDIClockEngine.batchDeadline()
-        targets.forEach { $0.resume(at: deadline) }
+        launchDevices(targets, continuing: true)
         linkTransportRunning = linkEnabled && (followers.isEmpty || followers.contains(where: \.running))
         publishLinkTransport(true)
         updateLinkWaiting()
-        notice = pendingFollowers.isEmpty ? nil : L("部分设备无法继续；请查看设备提示，或停止后从头开始。")
+        notice = targets.allSatisfy(\.running) && pendingFollowers.isEmpty ? nil
+            : L("部分设备无法继续；请查看设备提示，或停止后从头开始。")
     }
 
     func stopMaster() {
         publishLinkTransport(false)
         let deadline = MIDIClockEngine.batchDeadline()
-        followers.forEach { $0.stop(at: deadline) }
+        (followers + independentWaitingDevices).forEach { $0.stop(at: deadline) }
         linkTransportRunning = false
         linkWaiting = false
         notice = nil

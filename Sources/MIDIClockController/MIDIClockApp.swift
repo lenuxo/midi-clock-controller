@@ -163,7 +163,7 @@ struct ContentView: View {
         if model.linkWaiting { return model.linkQuantum == 4 ? L("等待 4 拍边界") : L("等待下一拍") }
         if model.linkEnabled { return model.playbackAction == .stop ? L("播放中") : L("已停止") }
         if model.onlineDevices.isEmpty { return L("未连接设备") }
-        if model.followers.isEmpty { return L("无跟随设备") }
+        if model.followers.isEmpty { return model.canStartMaster ? L("就绪") : L("无跟随设备") }
         switch model.playbackAction {
         case .start: return L("就绪")
         case .resume: return L("已停止")
@@ -181,7 +181,10 @@ struct ContentView: View {
     }
 
     private var masterActionHelp: String {
-        if model.linkWaiting { return L("取消跟随 MIDI 设备等待中的开始；启停联动开启时向 Link 会话发送停止。") }
+        if model.linkWaiting { return L("取消等待中的设备启动；启停联动开启时向 Link 会话发送停止。") }
+        if model.playbackAction != .stop && model.devices.contains(where: { !$0.followsMaster && $0.startsWithMaster }) {
+            return L("启动跟随设备及开启「随主控启动」的独立设备；各设备保留自己的 BPM，运行中的设备继续播放。")
+        }
         if model.linkStartStopSync {
             if model.playbackAction == .resume { return L("跟随 MIDI 设备从各自停留位置继续，并向 Link 会话发送开始；独立设备不受影响。") }
             return model.playbackAction == .stop ? L("停止跟随 MIDI 设备，并向 Link 会话发送停止；独立设备不受影响。")
@@ -205,9 +208,9 @@ struct ContentView: View {
                         .frame(maxWidth: .infinity, minHeight: 40)
                 }
                     .buttonStyle(RestartButtonStyle(palette: palette))
-                    .help(model.linkStartStopSync ? L("跟随 MIDI 设备从头开始，并向 Link 会话发送开始；不会重置其他参与者的乐曲位置。") : L("仅跟随设备从序列开头播放，不影响独立设备"))
+                    .help(model.linkStartStopSync ? L("停止中的跟随设备及开启「随主控启动」的独立设备从头开始，并向 Link 会话发送开始。") : L("停止中的跟随设备及开启「随主控启动」的独立设备从头开始；运行中的设备继续播放。"))
             }
-        }.disabled(model.followers.isEmpty && !model.linkEnabled)
+        }.disabled(!model.canStartMaster && model.playbackAction != .stop)
     }
 
     private var masterPanel: some View {
@@ -326,6 +329,12 @@ struct DeviceRow: View {
             }
             if !device.followsMaster {
                 VStack(spacing: 10) {
+                    Toggle(L("随主控启动"), isOn: $device.startsWithMaster)
+                        .toggleStyle(.checkbox)
+                        .font(.system(size: 11))
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .accessibilityLabel(L("%1$@ 随主控启动", device.output.name))
+                        .help(L("下次主控开始或继续时一起启动，保留独立 BPM；主控停止时仍独立播放。"))
                     TempoControl(text: device.bpmText, label: L("%1$@ 独立 BPM", String(device.output.name)), palette: palette, small: true, expanded: true, commit: device.commitBPM,
                                  step: { device.setBPM(device.bpm + $0) })
                     PlaybackControls(action: device.playbackAction, palette: palette,

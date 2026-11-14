@@ -55,6 +55,49 @@ final class LinkControllerTests: XCTestCase {
         XCTAssertEqual(link.tempoEdits, [160])
     }
 
+    func testLinkedRemotePlayIncludesOnlyOptedInIndependentDevices() {
+        let (model, link, transports) = setup()
+        defer { model.shutdown() }
+        let independent = model.devices[2]
+        independent.setBPM(90)
+        independent.startsWithMaster = true
+        model.setLinkEnabled(true)
+        model.setLinkStartStopSync(true)
+        link.remotePlay(true)
+        model.pollLink()
+        XCTAssertEqual(model.playingCount, 3)
+        XCTAssertEqual(independent.bpm, 90)
+        XCTAssertTrue(transports()[2].launchClock === link)
+        XCTAssertNil(transports()[2].beatClock)
+        link.remotePlay(false)
+        model.pollLink()
+        XCTAssertTrue(independent.running)
+        independent.stop()
+        link.remotePlay(true)
+        model.pollLink()
+        XCTAssertTrue(independent.running)
+        XCTAssertEqual(transports()[2].resumes, 1)
+        model.stopAll()
+        XCTAssertEqual(model.playingCount, 0)
+    }
+
+    func testMasterCancellationAlsoCancelsArmedIndependentLaunch() {
+        let (model, _, transports) = setup()
+        defer { model.shutdown() }
+        let independent = model.devices[2]
+        independent.startsWithMaster = true
+        model.setLinkEnabled(true)
+        model.startMaster()
+        transports()[2].waitingForBeat = true
+        independent.startsWithMaster = false // Applies to the next launch only.
+        model.pollLink()
+        XCTAssertTrue(model.linkWaiting)
+        model.stopMaster()
+        XCTAssertFalse(independent.running)
+        XCTAssertFalse(independent.canContinue)
+        XCTAssertFalse(model.linkWaiting)
+    }
+
     func testRemoteTempoTransportAndEmergencyStopAreIsolated() {
         let (model, link, transports) = setup()
         defer { model.shutdown() }
@@ -158,6 +201,9 @@ final class LinkControllerTests: XCTestCase {
 private final class LinkTransport: DeviceTransport {
     var onFailure: ((String) -> Void)?
     var beatClock: BeatClock?
+    var launchClock: BeatClock?
+    var waitingForBeat = false
+    func setLaunchClock(_ clock: BeatClock?, quantum: Double) { launchClock = clock }
     var resumes = 0
     func setBeatClock(_ clock: BeatClock?, quantum: Double) { beatClock = clock }
     func start(outputs: [MIDIOutput], bpm: Double, scheduledAt: Double?) throws {}

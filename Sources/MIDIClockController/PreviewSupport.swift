@@ -7,12 +7,14 @@ import LinkBridge
 private final class PreviewTransport: DeviceTransport {
     var onFailure: ((String) -> Void)?
     private var source: BeatClock?
+    private var launchSource: BeatClock?
     private var quantum = 1.0
     private var due: Double?
     var waitingForBeat: Bool { due.map { LinkSession.hostTime() < $0 } ?? false }
     func setBeatClock(_ clock: BeatClock?, quantum: Double) { source = clock; self.quantum = quantum }
+    func setLaunchClock(_ clock: BeatClock?, quantum: Double) { launchSource = clock; if source == nil { self.quantum = quantum } }
     func start(outputs: [MIDIOutput], bpm: Double, scheduledAt: Double?) throws {
-        guard let source else { due = nil; return }
+        guard let source = source ?? launchSource else { due = nil; return }
         let time = LinkSession.hostTime()
         let timeline = source.timeline(at: time)
         due = timeline.time(at: ceil(timeline.beat(at: time + 0.05) / quantum) * quantum)

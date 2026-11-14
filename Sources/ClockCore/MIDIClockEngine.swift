@@ -29,6 +29,7 @@ public final class MIDIClockEngine {
     private var destinations: [MIDIOutput] = []
     private var schedule: ClockSchedule?
     private var beatClock: BeatClock?
+    private var launchClock: BeatClock?
     private var launchQuantum = 1.0
     private var externalBeatScale = 1.0
     private var nextExternalBeat: Double?
@@ -123,8 +124,8 @@ public final class MIDIClockEngine {
             let start = max(now() + lookAhead, transportBoundary + 0.001, scheduledAt ?? 0)
             lastSubmitted = start
             schedule = ClockSchedule(bpm: bpm, start: start + 0.001, preserveGrid: scheduledAt != nil)
-            if let beatClock {
-                let timeline = beatClock.timeline(at: now())
+            if let source = beatClock ?? launchClock {
+                let timeline = source.timeline(at: now())
                 guard timeline.valid else { schedule = nil; throw MIDIError(operation: L("Link 时间线不可用"), status: -1) }
                 externalBeatScale = timeline.beatScale
                 nextExternalBeat = ceil(timeline.beat(at: start + 0.001) / launchQuantum) * launchQuantum
@@ -132,7 +133,7 @@ public final class MIDIClockEngine {
                 lastExternalClock = nil
                 lastSubmitted = 0 // Nothing has been submitted while waiting for the boundary.
             }
-            do { if beatClock == nil { try send(status, at: start) } }
+            do { if pendingExternalTransport == nil { try send(status, at: start) } }
             catch {
                 // Some outputs may have accepted Start or Continue. Stop all before reporting failure.
                 try? stopOnQueue()
@@ -154,6 +155,15 @@ public final class MIDIClockEngine {
 
     public func setBPM(_ bpm: Double) {
         serialized { pendingTempo = nil; if beatClock == nil { schedule?.setBPM(bpm) } }
+    }
+
+    /// Use this source only for the next launch boundary, then keep the local BPM.
+    public func setLaunchClock(_ clock: BeatClock?, quantum: Double = 1) {
+        serialized {
+            guard schedule == nil, beatClock == nil else { return }
+            launchClock = clock
+            launchQuantum = quantum == 4 ? 4 : 1
+        }
     }
 
     public func setBeatClock(_ clock: BeatClock?, quantum: Double = 1) {
@@ -230,6 +240,7 @@ public final class MIDIClockEngine {
         lastExternalClock = nil
         let wasArmed = pendingExternalTransport != nil
         pendingExternalTransport = nil
+        launchClock = nil
         if let activity { ProcessInfo.processInfo.endActivity(activity) }
         activity = nil
         if wasArmed { destinations = []; return }
@@ -256,8 +267,8 @@ public final class MIDIClockEngine {
     }
 
     private func pump() {
-        if let beatClock, schedule != nil {
-            pumpExternal(beatClock)
+        if let source = beatClock ?? launchClock, schedule != nil {
+            pumpExternal(source)
             return
         }
         guard var current = schedule else { return }
@@ -322,6 +333,15 @@ public final class MIDIClockEngine {
                 pendingExternalTransport = nil
                 lastSubmitted = deadline - 0.001
                 try send(status, at: deadline - 0.001)
+                if beatClock == nil, launchClock != nil, let current = schedule {
+                    // Keep the first pulse on the shared boundary. Subsequent
+                    // pulses use this device's own tempo and absolute schedule.
+                    launchClock = nil
+                    nextExternalBeat = nil
+                    schedule = ClockSchedule(bpm: current.bpm, start: deadline)
+                    pump()
+                    return
+                }
             } else if deadline < time - min(0.050, interval) {
                 fail(L("时钟调度中断，已停止。请重新开始。")); return
             }

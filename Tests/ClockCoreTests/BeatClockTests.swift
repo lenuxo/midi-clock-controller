@@ -26,6 +26,60 @@ final class BeatClockTests: XCTestCase {
         one.shutdown(); two.shutdown()
     }
 
+    func testLaunchOnlyClockStartsOnSharedBeatThenUsesIndependentTempo() throws {
+        let clock = TestBeatClock()
+        var now = 0.0
+        var follower: [(UInt8, Double)] = [], independent: [(UInt8, Double)] = []
+        let a = MIDIClockEngine(clock: { now }, wait: { now += $0 }, sender: { follower.append(($0, $1)) })
+        let b = MIDIClockEngine(clock: { now }, wait: { now += $0 }, sender: { independent.append(($0, $1)) })
+        a.setBeatClock(clock, quantum: 4)
+        b.setLaunchClock(clock, quantum: 4)
+        try a.start(outputs: [output], bpm: 120, scheduledAt: 0.05)
+        try b.start(outputs: [output], bpm: 90, scheduledAt: 0.05)
+        XCTAssertTrue(b.waitingForBeat)
+        for i in 1...1400 {
+            now = Double(i) * 0.002
+            if i == 200 { clock.setTempo(150, at: now) }
+            a.pumpForTesting(); b.pumpForTesting()
+        }
+        XCTAssertFalse(b.waitingForBeat)
+        XCTAssertEqual(follower.first?.0, 0xFA)
+        XCTAssertEqual(independent.first?.0, 0xFA)
+        XCTAssertEqual(follower.first?.1, independent.first?.1)
+        XCTAssertEqual(follower.first(where: { $0.0 == 0xF8 })?.1, independent.first(where: { $0.0 == 0xF8 })?.1)
+        let ticks = independent.filter { $0.0 == 0xF8 }
+        XCTAssertGreaterThan(ticks.count, 24)
+        for (a, b) in zip(ticks, ticks.dropFirst()) {
+            XCTAssertEqual(b.1 - a.1, 60 / (90 * 24), accuracy: 1e-9)
+        }
+        a.shutdown(); b.shutdown()
+    }
+
+    func testLaunchOnlyCancellationAndResumeNeverLeaveQueuedStarts() throws {
+        let clock = TestBeatClock()
+        var now = 0.0
+        var events: [(UInt8, Double)] = []
+        let engine = MIDIClockEngine(clock: { now }, wait: { now += $0 }, sender: { events.append(($0, $1)) })
+        for _ in 0..<100 {
+            engine.setLaunchClock(clock, quantum: 4)
+            try engine.start(outputs: [output], bpm: 90, scheduledAt: 0.05)
+            engine.pumpForTesting()
+            try engine.stop()
+        }
+        XCTAssertTrue(events.isEmpty)
+        XCTAssertEqual(now, 0)
+        engine.setLaunchClock(clock)
+        try engine.resume(outputs: [output], bpm: 90, scheduledAt: 0.05)
+        for i in 1...400 { now = Double(i) * 0.002; engine.pumpForTesting() }
+        XCTAssertEqual(events.first?.0, 0xFB)
+        XCTAssertEqual(events.first?.1 ?? 0, 0.499, accuracy: 1e-9)
+        try engine.stop()
+        let count = events.count
+        now += 3
+        engine.pumpForTesting()
+        XCTAssertEqual(events.count, count)
+    }
+
     func testArmedCancellationNeverSendsOrWaitsForOldTransport() throws {
         let clock = TestBeatClock()
         var now = 0.0
